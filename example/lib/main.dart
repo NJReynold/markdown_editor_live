@@ -108,6 +108,9 @@ Try typing here!
                   border: OutlineInputBorder(),
                   hintText: 'Type markdown here...',
                 ),
+                // Set image height to 10 lines (160px with fontSize 16)
+                // Default is 5 lines if not specified
+                imageHeightLines: 10,
               ),
             ),
           ),

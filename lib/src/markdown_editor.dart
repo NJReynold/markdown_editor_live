@@ -12,6 +12,11 @@ class MarkdownEditor extends StatefulWidget {
   final bool useSoftTabs;
   final int tabWidth;
 
+  /// The height of inline images in lines of text.
+  /// The actual height is calculated as: fontSize * imageHeightLines.
+  /// Defaults to 5 lines to maintain backward compatibility.
+  final int imageHeightLines;
+
   const MarkdownEditor({
     super.key,
     this.initialValue,
@@ -22,6 +27,7 @@ class MarkdownEditor extends StatefulWidget {
     this.decoration,
     this.useSoftTabs = true,
     this.tabWidth = 2,
+    this.imageHeightLines = 5,
   });
 
   @override
@@ -42,6 +48,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
       text: widget.initialValue,
       onLinkTap: widget.onLinkTap,
       onImageTap: widget.onImageTap,
+      imageHeightLines: widget.imageHeightLines,
     );
     _controller.addListener(_onSelectionChanged);
     _focusNode = FocusNode();

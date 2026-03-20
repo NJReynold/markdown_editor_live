@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 
 class MarkdownEditingController extends TextEditingController {
-  MarkdownEditingController({super.text, this.onLinkTap, this.onImageTap});
+  MarkdownEditingController({
+    super.text,
+    this.onLinkTap,
+    this.onImageTap,
+    this.imageHeightLines = 5,
+  });
 
   /// Called when a link is tapped. Receives the URL as a string.
   final void Function(String url)? onLinkTap;
 
   /// Called when an image is tapped. Receives the URL as a string.
   final void Function(String url)? onImageTap;
+
+  /// The height of inline images in lines of text.
+  /// The actual height is calculated as: fontSize * imageHeightLines.
+  /// Defaults to 5 lines.
+  final int imageHeightLines;
 
   /// Stores link ranges for offset-based tap detection.
   /// Each entry contains (start, end, url).
@@ -79,13 +89,20 @@ class MarkdownEditingController extends TextEditingController {
   }
 
   /// Builds an image widget for rendering inline images.
+  /// Includes vertical padding for visual spacing without affecting line layout.
   Widget _buildImageWidget(String url, String altText, TextStyle style) {
+    final fontSize = style.fontSize?.toDouble() ?? 16.0;
+    final verticalPadding = fontSize * (imageHeightLines - 1) / 2;
+    
     return GestureDetector(
       onTap: onImageTap != null ? () => onImageTap!(url) : null,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+        padding: EdgeInsets.symmetric(
+          horizontal: 4.0,
+          vertical: verticalPadding,
+        ),
         child: SizedBox(
-          height: style.fontSize?.toDouble() ?? 16.0 * 5,
+          height: fontSize,
           child: _buildImageWithSource(url, altText),
         ),
       ),
@@ -376,6 +393,7 @@ class MarkdownEditingController extends TextEditingController {
           final bridge = match.group(3)!;
           final url = match.group(4)!;
           final closeParen = match.group(5)!;
+          final int syntaxLength = match.group(0)!.length;
 
           if (isOnFocusedLine || _focusedLine == null) {
             // On focused line: show raw syntax (hide markers with fontSize: 0, show alt text normally)
@@ -391,17 +409,24 @@ class MarkdownEditingController extends TextEditingController {
             matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
           } else {
             // On unfocused line: hide all syntax and show image widget
-            matchSpans.add(TextSpan(text: openingMarker, style: hiddenStyle));
-            matchSpans.add(TextSpan(text: altText, style: hiddenStyle));
-            matchSpans.add(TextSpan(text: bridge, style: hiddenStyle));
-            matchSpans.add(TextSpan(text: url, style: hiddenStyle));
-            matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
+            // Strategy: WidgetSpan occupies 1 text position, so we need (syntaxLength - 1)
+            // zero-width spaces to maintain correct cursor positioning.
+            
+            // Add the image widget with built-in vertical padding
             matchSpans.add(
               WidgetSpan(
                 alignment: PlaceholderAlignment.middle,
                 child: _buildImageWidget(url, altText, combinedStyle),
               ),
             );
+            
+            // Fill remaining character positions with zero-width spaces (hidden)
+            // WidgetSpan occupies 1 position, so we need (syntaxLength - 1) more
+            // to match the source text length exactly.
+            final int zwspCount = syntaxLength - 1;
+            if (zwspCount > 0) {
+              matchSpans.add(TextSpan(text: '\u200B' * zwspCount, style: hiddenStyle));
+            }
           }
         } else if (pattern.type == _PatternType.inline) {
           if (match.groupCount >= 3) {
