@@ -30,6 +30,9 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
   late final MarkdownEditingController _controller;
   late final FocusNode _focusNode;
 
+  /// Stores the previous focused line before a tap, to restore after link tap.
+  int? _prevFocusedLine;
+
   @override
   void initState() {
     super.initState();
@@ -50,7 +53,27 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
   }
 
   void _onSelectionChanged() {
+    // Save the current focused line before updating
+    _prevFocusedLine = _controller.focusedLine;
     _controller.updateFocusedLineFromSelection();
+  }
+
+  /// Handles tap events on the text field.
+  /// Checks if the tap landed on a link and calls the callback if so.
+  void _onTap() {
+    if (widget.onLinkTap == null) return;
+
+    final offset = _controller.selection.baseOffset;
+    if (offset < 0) return;
+
+    final url = _controller.getLinkUrlAtOffset(offset);
+    if (url != null) {
+      widget.onLinkTap!(url);
+      // Restore focused line to prevent switching to source mode
+      if (_prevFocusedLine != null) {
+        _controller.focusedLine = _prevFocusedLine;
+      }
+    }
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -256,6 +279,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
       child: TextField(
         controller: _controller,
         onChanged: widget.onChanged,
+        onTap: _onTap,
         style: widget.style,
         decoration:
             widget.decoration?.copyWith(

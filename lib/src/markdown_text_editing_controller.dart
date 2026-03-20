@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 class MarkdownEditingController extends TextEditingController {
@@ -7,8 +6,9 @@ class MarkdownEditingController extends TextEditingController {
   /// Called when a link is tapped. Receives the URL as a string.
   final void Function(String url)? onLinkTap;
 
-  /// Active gesture recognizers for links, disposed on each rebuild.
-  final List<GestureRecognizer> _recognizers = [];
+  /// Stores link ranges for offset-based tap detection.
+  /// Each entry contains (start, end, url).
+  final List<({int start, int end, String url})> _linkRanges = [];
 
   /// The currently focused line number (0-indexed).
   /// When set, syntax markers are hidden on all other lines.
@@ -27,6 +27,17 @@ class MarkdownEditingController extends TextEditingController {
     if (selection.isValid && selection.baseOffset >= 0) {
       focusedLine = _getLineNumber(selection.baseOffset, text);
     }
+  }
+
+  /// Looks up the URL at the given character offset.
+  /// Returns null if no link exists at that offset.
+  String? getLinkUrlAtOffset(int offset) {
+    for (final range in _linkRanges) {
+      if (offset >= range.start && offset < range.end) {
+        return range.url;
+      }
+    }
+    return null;
   }
 
   int _getLineNumber(int offset, String text) {
@@ -65,25 +76,13 @@ class MarkdownEditingController extends TextEditingController {
   }
 
   @override
-  void dispose() {
-    _disposeRecognizers();
-    super.dispose();
-  }
-
-  void _disposeRecognizers() {
-    for (final r in _recognizers) {
-      r.dispose();
-    }
-    _recognizers.clear();
-  }
-
-  @override
   TextSpan buildTextSpan({
     required BuildContext context,
     TextStyle? style,
     required bool withComposing,
   }) {
-    _disposeRecognizers();
+    // Clear link ranges on each rebuild
+    _linkRanges.clear();
     style ??= const TextStyle();
     return _parseMarkdown(text, style, context);
   }
@@ -284,21 +283,15 @@ class MarkdownEditingController extends TextEditingController {
 
           final linkStyle = combinedStyle;
 
-          TapGestureRecognizer? recognizer;
-          if (onLinkTap != null) {
-            recognizer = TapGestureRecognizer()..onTap = () => onLinkTap!(url);
-            _recognizers.add(recognizer);
-          }
+          // Store the link range for offset-based tap detection
+          // The link text starts after '[' and ends before ']('
+          final linkTextStart = match.start + bracket.length;
+          final linkTextEnd = linkTextStart + linkText.length;
+          _linkRanges.add((start: linkTextStart, end: linkTextEnd, url: url));
 
           if (isOnFocusedLine || _focusedLine == null) {
             matchSpans.add(TextSpan(text: bracket, style: linkStyle));
-            matchSpans.add(
-              TextSpan(
-                text: linkText,
-                style: linkStyle,
-                recognizer: recognizer,
-              ),
-            );
+            matchSpans.add(TextSpan(text: linkText, style: linkStyle));
             matchSpans.add(TextSpan(text: middle, style: linkStyle));
             matchSpans.add(
               TextSpan(
@@ -309,13 +302,7 @@ class MarkdownEditingController extends TextEditingController {
             matchSpans.add(TextSpan(text: closeParen, style: linkStyle));
           } else {
             matchSpans.add(TextSpan(text: bracket, style: hiddenStyle));
-            matchSpans.add(
-              TextSpan(
-                text: linkText,
-                style: linkStyle,
-                recognizer: recognizer,
-              ),
-            );
+            matchSpans.add(TextSpan(text: linkText, style: linkStyle));
             matchSpans.add(TextSpan(text: middle, style: hiddenStyle));
             matchSpans.add(TextSpan(text: url, style: hiddenStyle));
             matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));

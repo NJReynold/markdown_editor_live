@@ -43,6 +43,9 @@ This is a **live** markdown editor.
 - `Inline code`
 - Headers
 
+My favorite search engine is [Duck Duck Go](https://duckduckgo.com "The best search engine for privacy").
+
+
 ## Nested Lists (Try pressing Tab!)
 
 - Level 1 item
@@ -84,6 +87,11 @@ Try typing here!
                   setState(() {
                     _markdownData = value;
                   });
+                },
+                onLinkTap: (url) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Link tapped: $url')),
+                  );
                 },
                 style: const TextStyle(fontSize: 16),
                 decoration: const InputDecoration(
