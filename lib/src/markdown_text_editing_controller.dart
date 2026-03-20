@@ -102,7 +102,7 @@ class MarkdownEditingController extends TextEditingController {
           vertical: verticalPadding,
         ),
         child: SizedBox(
-          height: fontSize,
+          height: fontSize * imageHeightLines,
           child: _buildImageWithSource(url, altText),
         ),
       ),
