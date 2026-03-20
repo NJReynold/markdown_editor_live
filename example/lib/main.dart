@@ -63,10 +63,6 @@ This is a **live** markdown editor.
 Block code
 ```
 
-## Images
-
-![Flutter logo](https://picsum.photos/id/237/200/300)
-
 Try typing here!
 """;
 

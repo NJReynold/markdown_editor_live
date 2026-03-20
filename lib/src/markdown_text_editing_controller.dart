@@ -2,13 +2,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 class MarkdownEditingController extends TextEditingController {
-  MarkdownEditingController({super.text, this.onLinkTap, this.onImageTap});
+  MarkdownEditingController({super.text, this.onLinkTap});
 
   /// Called when a link is tapped. Receives the URL as a string.
   final void Function(String url)? onLinkTap;
-
-  /// Called when an image is tapped. Receives the image URL as a string.
-  final void Function(String url)? onImageTap;
 
   /// Active gesture recognizers for links, disposed on each rebuild.
   final List<GestureRecognizer> _recognizers = [];
@@ -177,12 +174,6 @@ class MarkdownEditingController extends TextEditingController {
         ),
         type: _PatternType.inline,
       ),
-      // Images ![alt](url) — must come before links
-      _MarkdownPattern(
-        RegExp(r'(!\[)([^\]]*?)(\]\()([^\)]+)(\))'),
-        (match) => const TextStyle(color: Colors.teal),
-        type: _PatternType.image,
-      ),
       // Links [text](url)
       _MarkdownPattern(
         RegExp(r'(\[)([^\]]+)(\]\()([^\)]+)(\))'),
@@ -282,104 +273,6 @@ class MarkdownEditingController extends TextEditingController {
                 ),
               ),
             );
-          }
-        } else if (pattern.type == _PatternType.image) {
-          // Groups: 1=![, 2=alt, 3=](, 4=url, 5=)
-          final exclamationBracket = match.group(1)!;
-          final altText = match.group(2)!;
-          final middle = match.group(3)!;
-          final url = match.group(4)!;
-          final closeParen = match.group(5)!;
-
-          final imageStyle = combinedStyle;
-
-          if (isOnFocusedLine || _focusedLine == null) {
-            // Show full syntax on focused line
-            matchSpans.add(
-              TextSpan(text: exclamationBracket, style: imageStyle),
-            );
-            matchSpans.add(TextSpan(text: altText, style: imageStyle));
-            matchSpans.add(TextSpan(text: middle, style: imageStyle));
-            matchSpans.add(
-              TextSpan(
-                text: url,
-                style: imageStyle.copyWith(color: Colors.teal.shade300),
-              ),
-            );
-            matchSpans.add(TextSpan(text: closeParen, style: imageStyle));
-          } else {
-            // WYSIWYG: hide all syntax, render actual image.
-            //
-            // IMPORTANT: WidgetSpan occupies exactly 1 character position in
-            // the visual layout. To keep cursor positions aligned with the
-            // source text, the WidgetSpan REPLACES the "!" character (1 pos)
-            // rather than being added as an extra span. All remaining source
-            // characters are rendered as hidden (fontSize: 0) TextSpans.
-
-            // Calculate dynamic image height based on font size (e.g. 5 lines)
-            final fontSize = defaultStyle.fontSize ?? 16.0;
-            final lineHeight = fontSize * 1.4;
-            final targetHeight = lineHeight * 5;
-
-            // WidgetSpan replaces "!" (1 source char -> 1 widget position)
-            matchSpans.add(
-              WidgetSpan(
-                alignment: PlaceholderAlignment.middle,
-                child: GestureDetector(
-                  onTap: onImageTap != null ? () => onImageTap!(url) : null,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: SizedBox(
-                      height: targetHeight,
-                      child: Image.network(
-                        url,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return SizedBox(
-                            height: targetHeight,
-                            width: targetHeight,
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.broken_image,
-                                    size: 16,
-                                    color: Colors.grey,
-                                  ),
-                                  if (altText.isNotEmpty) ...[
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      altText,
-                                      style: defaultStyle.copyWith(
-                                        color: Colors.grey,
-                                        fontSize: 10,
-                                        fontStyle: FontStyle.italic,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-
-            // Remaining source characters rendered hidden (fontSize: 0).
-            // "[" is the second char of exclamationBracket "![".
-            matchSpans.add(TextSpan(text: "[", style: hiddenStyle));
-            matchSpans.add(TextSpan(text: altText, style: hiddenStyle));
-            matchSpans.add(TextSpan(text: middle, style: hiddenStyle));
-            matchSpans.add(TextSpan(text: url, style: hiddenStyle));
-            matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
           }
         } else if (pattern.type == _PatternType.link) {
           // Groups: 1=[, 2=text, 3=](, 4=url, 5=)
@@ -510,7 +403,7 @@ class MarkdownEditingController extends TextEditingController {
   }
 }
 
-enum _PatternType { header, list, inline, image, link, thematicBreak }
+enum _PatternType { header, list, inline, link, thematicBreak }
 
 class _MarkdownPattern {
   final RegExp exp;
