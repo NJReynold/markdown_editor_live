@@ -45,6 +45,11 @@ This is a **live** markdown editor.
 
 My favorite search engine is [Duck Duck Go](https://duckduckgo.com "The best search engine for privacy").
 
+## Images
+
+![Test Image](https://picsum.photos/id/237/200/300)
+
+*Tap the image to see the tap handler in action!*
 
 ## Nested Lists (Try pressing Tab!)
 
@@ -91,6 +96,11 @@ Try typing here!
                 onLinkTap: (url) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Link tapped: $url')),
+                  );
+                },
+                onImageTap: (url) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Image tapped: $url')),
                   );
                 },
                 style: const TextStyle(fontSize: 16),

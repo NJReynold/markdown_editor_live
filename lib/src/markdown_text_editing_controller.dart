@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
 class MarkdownEditingController extends TextEditingController {
-  MarkdownEditingController({super.text, this.onLinkTap});
+  MarkdownEditingController({super.text, this.onLinkTap, this.onImageTap});
 
   /// Called when a link is tapped. Receives the URL as a string.
   final void Function(String url)? onLinkTap;
+
+  /// Called when an image is tapped. Receives the URL as a string.
+  final void Function(String url)? onImageTap;
 
   /// Stores link ranges for offset-based tap detection.
   /// Each entry contains (start, end, url).
@@ -73,6 +76,59 @@ class MarkdownEditingController extends TextEditingController {
     }
 
     return (0, 0);
+  }
+
+  /// Builds an image widget for rendering inline images.
+  Widget _buildImageWidget(String url, String altText, TextStyle style) {
+    return GestureDetector(
+      onTap: onImageTap != null ? () => onImageTap!(url) : null,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+        child: SizedBox(
+          height: style.fontSize?.toDouble() ?? 16.0 * 5,
+          child: _buildImageWithSource(url, altText),
+        ),
+      ),
+    );
+  }
+
+  /// Builds the appropriate image source based on URL scheme.
+  Widget _buildImageWithSource(String url, String altText) {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return Image.network(
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => _buildImageError(altText),
+      );
+    } else if (url.startsWith('asset://')) {
+      return Image.asset(
+        url.replaceFirst('asset://', ''),
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => _buildImageError(altText),
+      );
+    } else {
+      // For file paths or other sources, try network as fallback
+      return Image.network(
+        url,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => _buildImageError(altText),
+      );
+    }
+  }
+
+  /// Builds an error placeholder when image fails to load.
+  Widget _buildImageError(String altText) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        altText.isNotEmpty ? altText : 'Image not found',
+        style: const TextStyle(fontSize: 12, color: Colors.grey),
+      ),
+    );
   }
 
   @override
@@ -181,6 +237,12 @@ class MarkdownEditingController extends TextEditingController {
           decoration: TextDecoration.underline,
         ),
         type: _PatternType.link,
+      ),
+      // Images ![alt text](url)
+      _MarkdownPattern(
+        RegExp(r'(!\[)([^\]]*)(\]\()([^\)]+)(\))'),
+        (match) => const TextStyle(),
+        type: _PatternType.image,
       ),
       // Thematic break
       _MarkdownPattern(
@@ -307,6 +369,40 @@ class MarkdownEditingController extends TextEditingController {
             matchSpans.add(TextSpan(text: url, style: hiddenStyle));
             matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
           }
+        } else if (pattern.type == _PatternType.image) {
+          // Groups: 1=![, 2=alt text, 3=](, 4=url, 5=)
+          final openingMarker = match.group(1)!;
+          final altText = match.group(2)!;
+          final bridge = match.group(3)!;
+          final url = match.group(4)!;
+          final closeParen = match.group(5)!;
+
+          if (isOnFocusedLine || _focusedLine == null) {
+            // On focused line: show raw syntax (hide markers with fontSize: 0, show alt text normally)
+            matchSpans.add(TextSpan(text: openingMarker, style: hiddenStyle));
+            matchSpans.add(TextSpan(text: altText, style: combinedStyle));
+            matchSpans.add(TextSpan(text: bridge, style: hiddenStyle));
+            matchSpans.add(
+              TextSpan(
+                text: url,
+                style: combinedStyle.copyWith(color: Colors.blue.shade300),
+              ),
+            );
+            matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
+          } else {
+            // On unfocused line: hide all syntax and show image widget
+            matchSpans.add(TextSpan(text: openingMarker, style: hiddenStyle));
+            matchSpans.add(TextSpan(text: altText, style: hiddenStyle));
+            matchSpans.add(TextSpan(text: bridge, style: hiddenStyle));
+            matchSpans.add(TextSpan(text: url, style: hiddenStyle));
+            matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
+            matchSpans.add(
+              WidgetSpan(
+                alignment: PlaceholderAlignment.middle,
+                child: _buildImageWidget(url, altText, combinedStyle),
+              ),
+            );
+          }
         } else if (pattern.type == _PatternType.inline) {
           if (match.groupCount >= 3) {
             final prefix = match.group(1)!;
@@ -390,7 +486,7 @@ class MarkdownEditingController extends TextEditingController {
   }
 }
 
-enum _PatternType { header, list, inline, link, thematicBreak }
+enum _PatternType { header, list, inline, link, thematicBreak, image }
 
 class _MarkdownPattern {
   final RegExp exp;
