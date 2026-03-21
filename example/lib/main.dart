@@ -45,6 +45,11 @@ This is a **live** markdown editor.
 
 My favorite search engine is [Duck Duck Go](https://duckduckgo.com "The best search engine for privacy").
 
+## Images
+
+![Test Image](https://picsum.photos/id/237/200/300)
+
+*Tap the image to see the tap handler in action!*
 
 ## Nested Lists (Try pressing Tab!)
 
@@ -93,11 +98,19 @@ Try typing here!
                     SnackBar(content: Text('Link tapped: $url')),
                   );
                 },
-                style: const TextStyle(fontSize: 16),
+                onImageTap: (url) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Image tapped: $url')),
+                  );
+                },
+                style: const TextStyle(fontSize: 16, height: 1.2),
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   hintText: 'Type markdown here...',
                 ),
+                // Set image height to 10 lines (160px with fontSize 16)
+                // Default is 5 lines if not specified
+                imageHeightLines: 16,
               ),
             ),
           ),

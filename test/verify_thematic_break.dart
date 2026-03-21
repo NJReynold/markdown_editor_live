@@ -79,8 +79,9 @@ void main() {
                   if (child is WidgetSpan) {
                     final widget = child.child;
                     if (widget is Divider) hasDivider = true;
-                    if (widget is SizedBox && widget.child is Divider)
+                    if (widget is SizedBox && widget.child is Divider) {
                       hasDivider = true;
+                    }
                   }
                   if (child is TextSpan) {
                     textContent.write(child.text);

@@ -27,6 +27,7 @@ A Flutter widget that provides a **WYSIWYG-style markdown editing experience** w
 | Unordered lists   | `- item`, `* item`, `+ item`  |
 | Ordered lists     | `1. item`, `2. item`          |
 | Thematic breaks   | `---`, `***`, `___`           |
+| Images            | `![alt text](url)`            |
 
 ## Getting Started
 
@@ -82,6 +83,20 @@ MarkdownEditor(
 )
 ```
 
+### Image Tap Handling
+
+You can handle image taps using the `onImageTap` callback:
+
+```dart
+MarkdownEditor(
+  initialValue: '# Image Example\n\n![Logo](https://example.com/logo.png)',
+  onImageTap: (url) {
+    // Handle image tap - e.g., open in full screen
+    print('Image tapped: $url');
+  },
+)
+```
+
 ### Tab Configuration
 
 Control how the Tab key behaves:
@@ -98,14 +113,15 @@ MarkdownEditor(
 
 ### MarkdownEditor
 
-| Property       | Type                  | Default | Description                              |
-|----------------|-----------------------|---------|------------------------------------------|
-| `initialValue` | `String?`             | `null`  | Initial markdown content                 |
-| `onChanged`    | `ValueChanged<String>?` | `null`| Callback when content changes            |
-| `style`        | `TextStyle?`          | `null`  | Text style for the editor                |
-| `decoration`   | `InputDecoration?`    | `null`  | Input decoration for the TextField       |
-| `useSoftTabs`  | `bool`                | `true`  | Use spaces instead of tab characters     |
-| `tabWidth`     | `int`                 | `2`     | Number of spaces per soft tab            |
+| Property       | Type                      | Default | Description                                          |
+|----------------|---------------------------|---------|------------------------------------------------------|
+| `initialValue` | `String?`                 | `null`  | Initial markdown content                             |
+| `onChanged`    | `ValueChanged<String>?`   | `null`  | Callback when content changes                        |
+| `onImageTap`   | `void Function(String url)?` | `null` | Callback fired when an image is tapped. Receives the image URL as parameter. |
+| `style`        | `TextStyle?`              | `null`  | Text style for the editor                            |
+| `decoration`   | `InputDecoration?`        | `null`  | Input decoration for the TextField                   |
+| `useSoftTabs`  | `bool`                    | `true`  | Use spaces instead of tab characters                 |
+| `tabWidth`     | `int`                     | `2`     | Number of spaces per soft tab                        |
 
 ### MarkdownEditingController
 

@@ -6,20 +6,28 @@ class MarkdownEditor extends StatefulWidget {
   final String? initialValue;
   final ValueChanged<String>? onChanged;
   final void Function(String url)? onLinkTap;
+  final void Function(String url)? onImageTap;
   final TextStyle? style;
   final InputDecoration? decoration;
   final bool useSoftTabs;
   final int tabWidth;
+
+  /// The height of inline images in lines of text.
+  /// The actual height is calculated as: fontSize * imageHeightLines.
+  /// Defaults to 5 lines to maintain backward compatibility.
+  final int imageHeightLines;
 
   const MarkdownEditor({
     super.key,
     this.initialValue,
     this.onChanged,
     this.onLinkTap,
+    this.onImageTap,
     this.style,
     this.decoration,
     this.useSoftTabs = true,
     this.tabWidth = 2,
+    this.imageHeightLines = 5,
   });
 
   @override
@@ -39,13 +47,24 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
     _controller = MarkdownEditingController(
       text: widget.initialValue,
       onLinkTap: widget.onLinkTap,
+      onImageTap: widget.onImageTap,
+      imageHeightLines: widget.imageHeightLines,
     );
     _controller.addListener(_onSelectionChanged);
     _focusNode = FocusNode();
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (!_focusNode.hasFocus) {
+      // Clear focused line when textfield loses focus to show rendered markdown
+      _controller.focusedLine = null;
+    }
   }
 
   @override
   void dispose() {
+    _focusNode.removeListener(_onFocusChanged);
     _controller.removeListener(_onSelectionChanged);
     _controller.dispose();
     _focusNode.dispose();
