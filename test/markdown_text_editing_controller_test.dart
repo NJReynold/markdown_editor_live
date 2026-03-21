@@ -56,16 +56,22 @@ void main() {
                   withComposing: false,
                 );
 
-                // Based on our logic:
+                // Based on our logic (no line focused, so syntax is hidden):
                 // "This is " (default)
-                // "**bold**" (bold)
+                // "**" (hidden prefix)
+                // "bold" (bold content)
+                // "**" (hidden suffix)
                 // " text" (default)
 
-                expect(span.children?.length, 3);
+                expect(span.children?.length, 5);
                 expect(span.children![0].toPlainText(), 'This is ');
-                expect(span.children![1].toPlainText(), '**bold**');
-                expect(span.children![1].style?.fontWeight, FontWeight.bold);
-                expect(span.children![2].toPlainText(), ' text');
+                expect(span.children![1].toPlainText(), '**');
+                expect(span.children![1].style?.fontSize, 0.0); // hidden
+                expect(span.children![2].toPlainText(), 'bold');
+                expect(span.children![2].style?.fontWeight, FontWeight.bold);
+                expect(span.children![3].toPlainText(), '**');
+                expect(span.children![3].style?.fontSize, 0.0); // hidden
+                expect(span.children![4].toPlainText(), ' text');
 
                 return Container();
               },

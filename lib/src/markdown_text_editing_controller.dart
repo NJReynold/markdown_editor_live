@@ -8,6 +8,8 @@ class MarkdownEditingController extends TextEditingController {
     this.imageHeightLines = 5,
   }) : assert(imageHeightLines > 0, 'imageHeightLines must be positive') {
     _sourceText = super.text;
+    // Add virtual newlines for image spacing on initial text
+    _updateTextWithNewlines();
   }
 
   /// Called when a link is tapped. Receives the URL as a string.
@@ -225,31 +227,19 @@ class MarkdownEditingController extends TextEditingController {
     // Store the clean source text
     _sourceText = cleanText;
 
-    if (_focusedLine == null || cleanText.isEmpty) {
-      // No focus - no newlines needed
-      if (super.text != cleanText) {
-        // Save old display text BEFORE changing it for correct offset mapping
-        final oldDisplayText = super.text;
-        final oldSelection = selection;
-        super.text = cleanText;
-        // Restore selection with mapped offsets using the old display text
-        if (oldSelection.isValid) {
-          final newBase = _displayToSourceOffset(oldSelection.baseOffset, oldDisplayText);
-          final newExtent = _displayToSourceOffset(oldSelection.extentOffset, oldDisplayText);
-          selection = TextSelection(
-            baseOffset: newBase.clamp(0, cleanText.length),
-            extentOffset: newExtent.clamp(0, cleanText.length),
-            affinity: oldSelection.affinity,
-          );
-        }
-      }
+    if (cleanText.isEmpty) {
       return;
     }
 
-    // Find the focused line range
-    final focusedLineRange = _getLineRange(_focusedLine!, cleanText);
+    // Determine which line range is "focused" (where we show raw syntax)
+    // When _focusedLine is null, ALL images should have newlines (all rendered as widgets)
+    // When _focusedLine is set, only images NOT on that line should have newlines
+    (int, int)? focusedLineRange;
+    if (_focusedLine != null) {
+      focusedLineRange = _getLineRange(_focusedLine!, cleanText);
+    }
 
-    // Build new text with virtual newlines around unfocused images
+    // Build new text with virtual newlines around images that will be rendered as widgets
     final buffer = StringBuffer();
     int lastEnd = 0;
 
@@ -257,12 +247,13 @@ class MarkdownEditingController extends TextEditingController {
       // Add text before this match
       buffer.write(cleanText.substring(lastEnd, match.start));
 
-      // Check if this image is on the focused line
-      final isOnFocusedLine = match.start >= focusedLineRange.$1 &&
+      // Check if this image should show raw syntax (on focused line) or rendered widget
+      final bool isOnFocusedLine = focusedLineRange != null &&
+          match.start >= focusedLineRange.$1 &&
           match.start < focusedLineRange.$2;
 
       if (!isOnFocusedLine) {
-        // Add virtual newlines before the image
+        // This image will be rendered as a widget - add virtual newlines for spacing
         final linesAbove = (imageHeightLines - 1) ~/ 2;
         if (linesAbove > 0) {
           buffer.write(_virtualNewlineMarker * linesAbove);
@@ -277,7 +268,7 @@ class MarkdownEditingController extends TextEditingController {
           buffer.write(_virtualNewlineMarker * linesBelow);
         }
       } else {
-        // Image is on focused line - no newlines
+        // Image is on focused line - show raw syntax, no newlines needed
         buffer.write(match.group(0));
       }
 
@@ -314,7 +305,7 @@ class MarkdownEditingController extends TextEditingController {
     return text.replaceAll(_virtualNewlineMarker, '');
   }
 
-  /// Override text setter to update source text
+  /// Override text setter to update source text and add newlines for image spacing
   @override
   set text(String value) {
     if (_isUpdatingText) {
@@ -326,12 +317,8 @@ class MarkdownEditingController extends TextEditingController {
     final cleanValue = _removeVirtualNewlines(value);
     _sourceText = cleanValue;
 
-    // If we have a focused line, regenerate with proper newlines
-    if (_focusedLine != null) {
-      _updateTextWithNewlines();
-    } else {
-      super.text = cleanValue;
-    }
+    // Always update with newlines for image spacing, regardless of focus state
+    _updateTextWithNewlines();
   }
 
   /// Override value setter to handle paste operations
@@ -370,10 +357,8 @@ class MarkdownEditingController extends TextEditingController {
         affinity: newValue.selection.affinity,
       );
       super.value = newValue.copyWith(text: cleanText, selection: sourceSelection);
-      // Only add newlines if we have a focused line
-      if (_focusedLine != null) {
-        _updateTextWithNewlinesInternal();
-      }
+      // Always add newlines for image spacing, regardless of focus state
+      _updateTextWithNewlinesInternal();
     } finally {
       _isUpdatingText = false;
     }
@@ -552,9 +537,7 @@ class MarkdownEditingController extends TextEditingController {
           matchSpans.add(
             TextSpan(
               text: syntax,
-              style: isOnFocusedLine || _focusedLine == null
-                  ? combinedStyle
-                  : hiddenStyle,
+              style: isOnFocusedLine ? combinedStyle : hiddenStyle,
             ),
           );
           matchSpans.add(TextSpan(text: content, style: combinedStyle));
@@ -566,7 +549,7 @@ class MarkdownEditingController extends TextEditingController {
 
           matchSpans.add(TextSpan(text: indent, style: defaultStyle));
 
-          if (isOnFocusedLine || _focusedLine == null) {
+          if (isOnFocusedLine) {
             matchSpans.add(
               TextSpan(
                 text: bulletOrNumber + space,
@@ -585,7 +568,7 @@ class MarkdownEditingController extends TextEditingController {
             );
           }
         } else if (pattern.type == _PatternType.thematicBreak) {
-          if (isOnFocusedLine || _focusedLine == null) {
+          if (isOnFocusedLine) {
             matchSpans.add(
               TextSpan(
                 text: match.group(0),
@@ -620,7 +603,7 @@ class MarkdownEditingController extends TextEditingController {
           final linkTextEnd = linkTextStart + linkText.length;
           _linkRanges.add((start: linkTextStart, end: linkTextEnd, url: url));
 
-          if (isOnFocusedLine || _focusedLine == null) {
+          if (isOnFocusedLine) {
             matchSpans.add(TextSpan(text: bracket, style: linkStyle));
             matchSpans.add(TextSpan(text: linkText, style: linkStyle));
             matchSpans.add(TextSpan(text: middle, style: linkStyle));
@@ -647,7 +630,7 @@ class MarkdownEditingController extends TextEditingController {
           final closeParen = match.group(5)!;
           final int syntaxLength = match.group(0)!.length;
 
-          if (isOnFocusedLine || _focusedLine == null) {
+          if (isOnFocusedLine) {
             // On focused line: show full raw syntax for editing
             matchSpans.add(TextSpan(text: openingMarker, style: combinedStyle));
             matchSpans.add(TextSpan(text: altText, style: combinedStyle));
@@ -686,18 +669,14 @@ class MarkdownEditingController extends TextEditingController {
             matchSpans.add(
               TextSpan(
                 text: prefix,
-                style: isOnFocusedLine || _focusedLine == null
-                    ? combinedStyle
-                    : hiddenStyle,
+                style: isOnFocusedLine ? combinedStyle : hiddenStyle,
               ),
             );
             matchSpans.add(TextSpan(text: content, style: combinedStyle));
             matchSpans.add(
               TextSpan(
                 text: suffix,
-                style: isOnFocusedLine || _focusedLine == null
-                    ? combinedStyle
-                    : hiddenStyle,
+                style: isOnFocusedLine ? combinedStyle : hiddenStyle,
               ),
             );
           } else {

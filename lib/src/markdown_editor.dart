@@ -52,10 +52,19 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
     );
     _controller.addListener(_onSelectionChanged);
     _focusNode = FocusNode();
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (!_focusNode.hasFocus) {
+      // Clear focused line when textfield loses focus to show rendered markdown
+      _controller.focusedLine = null;
+    }
   }
 
   @override
   void dispose() {
+    _focusNode.removeListener(_onFocusChanged);
     _controller.removeListener(_onSelectionChanged);
     _controller.dispose();
     _focusNode.dispose();
