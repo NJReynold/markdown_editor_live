@@ -48,6 +48,10 @@ class MarkdownEditingController extends TextEditingController {
 
   void updateFocusedLineFromSelection() {
     if (selection.isValid && selection.baseOffset >= 0) {
+      // Ensure _sourceText is up-to-date (defensive measure)
+      if (_sourceText.isEmpty && super.text.isNotEmpty) {
+        _sourceText = _removeVirtualNewlines(super.text);
+      }
       // Map display offset to source offset first, then calculate line number from source text
       final sourceOffset = _displayToSourceOffset(selection.baseOffset, super.text);
       focusedLine = _getLineNumber(sourceOffset, _sourceText);
@@ -206,95 +210,102 @@ class MarkdownEditingController extends TextEditingController {
     _isUpdatingText = true;
 
     try {
-      // First, clean any existing virtual newlines from the current text
-      String cleanText = _removeVirtualNewlines(super.text);
+      _updateTextWithNewlinesInternal();
+    } finally {
+      _isUpdatingText = false;
+    }
+  }
 
-      // Store the clean source text
-      _sourceText = cleanText;
+  /// Internal method that performs the actual newline update logic.
+  /// Must be called within an _isUpdatingText guard to prevent recursion.
+  void _updateTextWithNewlinesInternal() {
+    // First, clean any existing virtual newlines from the current text
+    String cleanText = _removeVirtualNewlines(super.text);
 
-      if (_focusedLine == null || cleanText.isEmpty) {
-        // No focus - no newlines needed
-        if (super.text != cleanText) {
-          // Save old display text BEFORE changing it for correct offset mapping
-          final oldDisplayText = super.text;
-          final oldSelection = selection;
-          super.text = cleanText;
-          // Restore selection with mapped offsets using the old display text
-          if (oldSelection.isValid) {
-            final newBase = _displayToSourceOffset(oldSelection.baseOffset, oldDisplayText);
-            final newExtent = _displayToSourceOffset(oldSelection.extentOffset, oldDisplayText);
-            selection = TextSelection(
-              baseOffset: newBase.clamp(0, cleanText.length),
-              extentOffset: newExtent.clamp(0, cleanText.length),
-              affinity: oldSelection.affinity,
-            );
-          }
-        }
-        return;
-      }
+    // Store the clean source text
+    _sourceText = cleanText;
 
-      // Find the focused line range
-      final focusedLineRange = _getLineRange(_focusedLine!, cleanText);
-
-      // Build new text with virtual newlines around unfocused images
-      final buffer = StringBuffer();
-      int lastEnd = 0;
-
-      for (final match in _imagePattern.allMatches(cleanText)) {
-        // Add text before this match
-        buffer.write(cleanText.substring(lastEnd, match.start));
-
-        // Check if this image is on the focused line
-        final isOnFocusedLine = match.start >= focusedLineRange.$1 &&
-            match.start < focusedLineRange.$2;
-
-        if (!isOnFocusedLine) {
-          // Add virtual newlines before the image
-          final linesAbove = (imageHeightLines - 1) ~/ 2;
-          if (linesAbove > 0) {
-            buffer.write(_virtualNewlineMarker * linesAbove);
-          }
-
-          // Add the image syntax
-          buffer.write(match.group(0));
-
-          // Add virtual newlines after the image
-          final linesBelow = (imageHeightLines - 1) - linesAbove;
-          if (linesBelow > 0) {
-            buffer.write(_virtualNewlineMarker * linesBelow);
-          }
-        } else {
-          // Image is on focused line - no newlines
-          buffer.write(match.group(0));
-        }
-
-        lastEnd = match.end;
-      }
-
-      // Add remaining text
-      buffer.write(cleanText.substring(lastEnd));
-
-      final newText = buffer.toString();
-      if (super.text != newText) {
-        // Preserve cursor position relative to source text
+    if (_focusedLine == null || cleanText.isEmpty) {
+      // No focus - no newlines needed
+      if (super.text != cleanText) {
+        // Save old display text BEFORE changing it for correct offset mapping
+        final oldDisplayText = super.text;
         final oldSelection = selection;
-        // Map selection from display to source offsets before text change
-        final sourceBase = _displayToSourceOffset(oldSelection.baseOffset, super.text);
-        final sourceExtent = _displayToSourceOffset(oldSelection.extentOffset, super.text);
-        super.text = newText;
-        // Restore selection with offsets mapped from source to display
+        super.text = cleanText;
+        // Restore selection with mapped offsets using the old display text
         if (oldSelection.isValid) {
-          final newBase = _sourceToDisplayOffset(sourceBase, newText);
-          final newExtent = _sourceToDisplayOffset(sourceExtent, newText);
+          final newBase = _displayToSourceOffset(oldSelection.baseOffset, oldDisplayText);
+          final newExtent = _displayToSourceOffset(oldSelection.extentOffset, oldDisplayText);
           selection = TextSelection(
-            baseOffset: newBase.clamp(0, newText.length),
-            extentOffset: newExtent.clamp(0, newText.length),
+            baseOffset: newBase.clamp(0, cleanText.length),
+            extentOffset: newExtent.clamp(0, cleanText.length),
             affinity: oldSelection.affinity,
           );
         }
       }
-    } finally {
-      _isUpdatingText = false;
+      return;
+    }
+
+    // Find the focused line range
+    final focusedLineRange = _getLineRange(_focusedLine!, cleanText);
+
+    // Build new text with virtual newlines around unfocused images
+    final buffer = StringBuffer();
+    int lastEnd = 0;
+
+    for (final match in _imagePattern.allMatches(cleanText)) {
+      // Add text before this match
+      buffer.write(cleanText.substring(lastEnd, match.start));
+
+      // Check if this image is on the focused line
+      final isOnFocusedLine = match.start >= focusedLineRange.$1 &&
+          match.start < focusedLineRange.$2;
+
+      if (!isOnFocusedLine) {
+        // Add virtual newlines before the image
+        final linesAbove = (imageHeightLines - 1) ~/ 2;
+        if (linesAbove > 0) {
+          buffer.write(_virtualNewlineMarker * linesAbove);
+        }
+
+        // Add the image syntax
+        buffer.write(match.group(0));
+
+        // Add virtual newlines after the image
+        final linesBelow = (imageHeightLines - 1) - linesAbove;
+        if (linesBelow > 0) {
+          buffer.write(_virtualNewlineMarker * linesBelow);
+        }
+      } else {
+        // Image is on focused line - no newlines
+        buffer.write(match.group(0));
+      }
+
+      lastEnd = match.end;
+    }
+
+    // Add remaining text
+    buffer.write(cleanText.substring(lastEnd));
+
+    final newText = buffer.toString();
+    
+    if (super.text != newText) {
+      // Preserve cursor position relative to source text
+      final oldSelection = selection;
+      // Map selection from display to source offsets before text change
+      final sourceBase = _displayToSourceOffset(oldSelection.baseOffset, super.text);
+      final sourceExtent = _displayToSourceOffset(oldSelection.extentOffset, super.text);
+      super.text = newText;
+      // Restore selection with offsets mapped from source to display
+      if (oldSelection.isValid) {
+        final newBase = _sourceToDisplayOffset(sourceBase, newText);
+        final newExtent = _sourceToDisplayOffset(sourceExtent, newText);
+        selection = TextSelection(
+          baseOffset: newBase.clamp(0, newText.length),
+          extentOffset: newExtent.clamp(0, newText.length),
+          affinity: oldSelection.affinity,
+        );
+      }
     }
   }
 
@@ -320,6 +331,51 @@ class MarkdownEditingController extends TextEditingController {
       _updateTextWithNewlines();
     } else {
       super.text = cleanValue;
+    }
+  }
+
+  /// Override value setter to handle paste operations
+  /// Flutter's TextField sets controller.value directly when pasting,
+  /// bypassing the text setter. This ensures _sourceText stays synchronized.
+  @override
+  set value(TextEditingValue newValue) {
+    if (_isUpdatingText) {
+      super.value = newValue;
+      return;
+    }
+
+    // Check if text has actually changed (selection-only changes should pass through)
+    if (newValue.text == super.text) {
+      // Selection-only change - pass through without processing
+      super.value = newValue;
+      return;
+    }
+
+    // Text has changed - clean virtual newlines and update source text
+    final cleanText = _removeVirtualNewlines(newValue.text);
+    _sourceText = cleanText;
+
+    // Map selection from display coordinates (in newValue.text) to source coordinates
+    // This is critical because newValue.selection is relative to newValue.text which
+    // contains virtual newlines, but we're about to set cleanText which has none.
+    final mappedSourceBase = _displayToSourceOffset(newValue.selection.baseOffset, newValue.text);
+    final mappedSourceExtent = _displayToSourceOffset(newValue.selection.extentOffset, newValue.text);
+
+    // Update with cleaned text AND mapped selection (source coordinates)
+    _isUpdatingText = true;
+    try {
+      final sourceSelection = TextSelection(
+        baseOffset: mappedSourceBase.clamp(0, cleanText.length),
+        extentOffset: mappedSourceExtent.clamp(0, cleanText.length),
+        affinity: newValue.selection.affinity,
+      );
+      super.value = newValue.copyWith(text: cleanText, selection: sourceSelection);
+      // Only add newlines if we have a focused line
+      if (_focusedLine != null) {
+        _updateTextWithNewlinesInternal();
+      }
+    } finally {
+      _isUpdatingText = false;
     }
   }
 
