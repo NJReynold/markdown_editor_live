@@ -592,17 +592,17 @@ class MarkdownEditingController extends TextEditingController {
           final int syntaxLength = match.group(0)!.length;
 
           if (isOnFocusedLine || _focusedLine == null) {
-            // On focused line: show raw syntax (hide markers with fontSize: 0, show alt text normally)
-            matchSpans.add(TextSpan(text: openingMarker, style: hiddenStyle));
+            // On focused line: show full raw syntax for editing
+            matchSpans.add(TextSpan(text: openingMarker, style: combinedStyle));
             matchSpans.add(TextSpan(text: altText, style: combinedStyle));
-            matchSpans.add(TextSpan(text: bridge, style: hiddenStyle));
+            matchSpans.add(TextSpan(text: bridge, style: combinedStyle));
             matchSpans.add(
               TextSpan(
                 text: url,
                 style: combinedStyle.copyWith(color: Colors.blue.shade300),
               ),
             );
-            matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
+            matchSpans.add(TextSpan(text: closeParen, style: combinedStyle));
           } else {
             // On unfocused line: hide all syntax and show image widget
             // The newlines for spacing are already in the text
