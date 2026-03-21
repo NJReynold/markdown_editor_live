@@ -6,7 +6,7 @@ class MarkdownEditingController extends TextEditingController {
     this.onLinkTap,
     this.onImageTap,
     this.imageHeightLines = 5,
-  }) {
+  }) : assert(imageHeightLines > 0, 'imageHeightLines must be positive') {
     _sourceText = super.text;
   }
 
@@ -169,12 +169,8 @@ class MarkdownEditingController extends TextEditingController {
         errorBuilder: (context, error, stackTrace) => _buildImageError(altText),
       );
     } else {
-      // For file paths or other sources, try network as fallback
-      return Image.network(
-        url,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) => _buildImageError(altText),
-      );
+      // Unknown scheme - show error placeholder directly
+      return _buildImageError(altText.isNotEmpty ? altText : 'Unsupported URL: $url');
     }
   }
 
@@ -198,7 +194,7 @@ class MarkdownEditingController extends TextEditingController {
   // ============================================================
 
   /// Pattern to match image syntax (with full groups for parsing)
-  static final _imagePattern = RegExp(r'(!\[)([^\]]*)(\]\()([^\)]+)(\))');
+  static final _imagePattern = RegExp(r'(!\[)([^\]]*)(\]\()([^)]+)(\))');
 
   /// Pattern to match our virtual newlines (marked with special comment)
   /// We use zero-width space + newline to mark virtual newlines
