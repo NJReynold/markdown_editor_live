@@ -345,10 +345,12 @@ class MarkdownEditingController extends TextEditingController {
   ) {
     final List<InlineSpan> spans = [];
 
-    // Calculate focused line range in current text
-    (int start, int end)? focusedLineRange;
+    // Calculate focused line range in SOURCE text coordinates
+    // This is critical because _focusedLine is tracked in source coordinates,
+    // and virtual newlines in displayText would cause offset mismatches
+    (int start, int end)? focusedLineRangeSource;
     if (_focusedLine != null) {
-      focusedLineRange = _getLineRange(_focusedLine!, displayText);
+      focusedLineRangeSource = _getLineRange(_focusedLine!, _sourceText);
     }
 
     // Pattern definitions
@@ -463,10 +465,12 @@ class MarkdownEditingController extends TextEditingController {
 
     for (final pattern in patterns) {
       for (final match in pattern.exp.allMatches(displayText)) {
+        // Convert display position to source position for accurate line comparison
+        final matchStartSource = _displayToSourceOffset(match.start, displayText);
         final isOnFocusedLine =
-            focusedLineRange != null &&
-            match.start >= focusedLineRange.$1 &&
-            match.start < focusedLineRange.$2;
+            focusedLineRangeSource != null &&
+            matchStartSource >= focusedLineRangeSource.$1 &&
+            matchStartSource < focusedLineRangeSource.$2;
 
         final rangeStyle = pattern.styleBuilder(match);
         final List<InlineSpan> matchSpans = [];
