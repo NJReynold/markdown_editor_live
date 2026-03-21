@@ -6,7 +6,9 @@ class MarkdownEditingController extends TextEditingController {
     this.onLinkTap,
     this.onImageTap,
     this.imageHeightLines = 5,
-  });
+  }) {
+    _sourceText = super.text;
+  }
 
   /// Called when a link is tapped. Receives the URL as a string.
   final void Function(String url)? onLinkTap;
@@ -27,18 +29,28 @@ class MarkdownEditingController extends TextEditingController {
   /// When set, syntax markers are hidden on all other lines.
   int? _focusedLine;
 
+  /// The source text without virtual newlines
+  String _sourceText = '';
+
+  /// Flag to prevent recursive text updates
+  bool _isUpdatingText = false;
+
   int? get focusedLine => _focusedLine;
 
+  /// Set the focused line and update text to inject/remove newlines
   set focusedLine(int? value) {
     if (_focusedLine != value) {
       _focusedLine = value;
+      _updateTextWithNewlines();
       notifyListeners();
     }
   }
 
   void updateFocusedLineFromSelection() {
     if (selection.isValid && selection.baseOffset >= 0) {
-      focusedLine = _getLineNumber(selection.baseOffset, text);
+      // Map display offset to source offset first, then calculate line number from source text
+      final sourceOffset = _displayToSourceOffset(selection.baseOffset, super.text);
+      focusedLine = _getLineNumber(sourceOffset, _sourceText);
     }
   }
 
@@ -51,6 +63,44 @@ class MarkdownEditingController extends TextEditingController {
       }
     }
     return null;
+  }
+
+  /// Maps a source text offset to a display text offset.
+  /// The display text may contain virtual newline markers (\u200B\n)
+  /// which are 2 display characters that represent 0 source characters.
+  int _sourceToDisplayOffset(int sourceOffset, String displayText) {
+    int displayOffset = 0;
+    int sourcePos = 0;
+
+    for (int i = 0; i < displayText.length && sourcePos < sourceOffset; i++) {
+      if (displayText.startsWith(_virtualNewlineMarker, i)) {
+        // Virtual newline marker - counts as 0 in source, 2 in display
+        displayOffset += _virtualNewlineMarker.length;
+        i += _virtualNewlineMarker.length - 1;
+      } else {
+        sourcePos++;
+        displayOffset++;
+      }
+    }
+
+    return displayOffset;
+  }
+
+  /// Maps a display text offset to a source text offset.
+  /// Virtual newline markers in display text are skipped when counting source offset.
+  int _displayToSourceOffset(int displayOffset, String displayText) {
+    int sourceOffset = 0;
+
+    for (int i = 0; i < displayOffset && i < displayText.length; i++) {
+      if (displayText.startsWith(_virtualNewlineMarker, i)) {
+        // Virtual newline marker - skip in source, advance past both chars
+        i += _virtualNewlineMarker.length - 1;
+      } else {
+        sourceOffset++;
+      }
+    }
+
+    return sourceOffset;
   }
 
   int _getLineNumber(int offset, String text) {
@@ -89,18 +139,13 @@ class MarkdownEditingController extends TextEditingController {
   }
 
   /// Builds an image widget for rendering inline images.
-  /// Includes vertical padding for visual spacing without affecting line layout.
   Widget _buildImageWidget(String url, String altText, TextStyle style) {
     final fontSize = style.fontSize?.toDouble() ?? 16.0;
-    final verticalPadding = fontSize * (imageHeightLines - 1) / 2;
-    
+
     return GestureDetector(
       onTap: onImageTap != null ? () => onImageTap!(url) : null,
       child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: 4.0,
-          vertical: verticalPadding,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 4.0),
         child: SizedBox(
           height: fontSize * imageHeightLines,
           child: _buildImageWithSource(url, altText),
@@ -148,6 +193,143 @@ class MarkdownEditingController extends TextEditingController {
     );
   }
 
+  // ============================================================
+  // NEWLINE INJECTION FOR IMAGE SPACING
+  // ============================================================
+
+  /// Pattern to match image syntax (with full groups for parsing)
+  static final _imagePattern = RegExp(r'(!\[)([^\]]*)(\]\()([^\)]+)(\))');
+
+  /// Pattern to match our virtual newlines (marked with special comment)
+  /// We use zero-width space + newline to mark virtual newlines
+  static const _virtualNewlineMarker = '\u200B\n';
+
+  /// Update the actual text to include newlines around unfocused images
+  void _updateTextWithNewlines() {
+    if (_isUpdatingText) return;
+    _isUpdatingText = true;
+
+    try {
+      // First, clean any existing virtual newlines from the current text
+      String cleanText = _removeVirtualNewlines(super.text);
+
+      // Store the clean source text
+      _sourceText = cleanText;
+
+      if (_focusedLine == null || cleanText.isEmpty) {
+        // No focus - no newlines needed
+        if (super.text != cleanText) {
+          // Save old display text BEFORE changing it for correct offset mapping
+          final oldDisplayText = super.text;
+          final oldSelection = selection;
+          super.text = cleanText;
+          // Restore selection with mapped offsets using the old display text
+          if (oldSelection.isValid) {
+            final newBase = _displayToSourceOffset(oldSelection.baseOffset, oldDisplayText);
+            final newExtent = _displayToSourceOffset(oldSelection.extentOffset, oldDisplayText);
+            selection = TextSelection(
+              baseOffset: newBase.clamp(0, cleanText.length),
+              extentOffset: newExtent.clamp(0, cleanText.length),
+              affinity: oldSelection.affinity,
+            );
+          }
+        }
+        return;
+      }
+
+      // Find the focused line range
+      final focusedLineRange = _getLineRange(_focusedLine!, cleanText);
+
+      // Build new text with virtual newlines around unfocused images
+      final buffer = StringBuffer();
+      int lastEnd = 0;
+
+      for (final match in _imagePattern.allMatches(cleanText)) {
+        // Add text before this match
+        buffer.write(cleanText.substring(lastEnd, match.start));
+
+        // Check if this image is on the focused line
+        final isOnFocusedLine = match.start >= focusedLineRange.$1 &&
+            match.start < focusedLineRange.$2;
+
+        if (!isOnFocusedLine) {
+          // Add virtual newlines before the image
+          final linesAbove = (imageHeightLines - 1) ~/ 2;
+          if (linesAbove > 0) {
+            buffer.write(_virtualNewlineMarker * linesAbove);
+          }
+
+          // Add the image syntax
+          buffer.write(match.group(0));
+
+          // Add virtual newlines after the image
+          final linesBelow = (imageHeightLines - 1) - linesAbove;
+          if (linesBelow > 0) {
+            buffer.write(_virtualNewlineMarker * linesBelow);
+          }
+        } else {
+          // Image is on focused line - no newlines
+          buffer.write(match.group(0));
+        }
+
+        lastEnd = match.end;
+      }
+
+      // Add remaining text
+      buffer.write(cleanText.substring(lastEnd));
+
+      final newText = buffer.toString();
+      if (super.text != newText) {
+        // Preserve cursor position relative to source text
+        final oldSelection = selection;
+        // Map selection from display to source offsets before text change
+        final sourceBase = _displayToSourceOffset(oldSelection.baseOffset, super.text);
+        final sourceExtent = _displayToSourceOffset(oldSelection.extentOffset, super.text);
+        super.text = newText;
+        // Restore selection with offsets mapped from source to display
+        if (oldSelection.isValid) {
+          final newBase = _sourceToDisplayOffset(sourceBase, newText);
+          final newExtent = _sourceToDisplayOffset(sourceExtent, newText);
+          selection = TextSelection(
+            baseOffset: newBase.clamp(0, newText.length),
+            extentOffset: newExtent.clamp(0, newText.length),
+            affinity: oldSelection.affinity,
+          );
+        }
+      }
+    } finally {
+      _isUpdatingText = false;
+    }
+  }
+
+  /// Remove virtual newlines from text
+  String _removeVirtualNewlines(String text) {
+    return text.replaceAll(_virtualNewlineMarker, '');
+  }
+
+  /// Override text setter to update source text
+  @override
+  set text(String value) {
+    if (_isUpdatingText) {
+      super.text = value;
+      return;
+    }
+
+    // Clean any virtual newlines from incoming text
+    final cleanValue = _removeVirtualNewlines(value);
+    _sourceText = cleanValue;
+
+    // If we have a focused line, regenerate with proper newlines
+    if (_focusedLine != null) {
+      _updateTextWithNewlines();
+    } else {
+      super.text = cleanValue;
+    }
+  }
+
+  /// Get the source text (without virtual newlines)
+  String get sourceText => _sourceText;
+
   @override
   TextSpan buildTextSpan({
     required BuildContext context,
@@ -161,16 +343,16 @@ class MarkdownEditingController extends TextEditingController {
   }
 
   TextSpan _parseMarkdown(
-    String text,
+    String displayText,
     TextStyle defaultStyle,
     BuildContext context,
   ) {
     final List<InlineSpan> spans = [];
 
-    // Calculate focused line range in SOURCE text
+    // Calculate focused line range in current text
     (int start, int end)? focusedLineRange;
     if (_focusedLine != null) {
-      focusedLineRange = _getLineRange(_focusedLine!, text);
+      focusedLineRange = _getLineRange(_focusedLine!, displayText);
     }
 
     // Pattern definitions
@@ -257,7 +439,7 @@ class MarkdownEditingController extends TextEditingController {
       ),
       // Images ![alt text](url)
       _MarkdownPattern(
-        RegExp(r'(!\[)([^\]]*)(\]\()([^\)]+)(\))'),
+        _imagePattern,
         (match) => const TextStyle(),
         type: _PatternType.image,
       ),
@@ -271,13 +453,20 @@ class MarkdownEditingController extends TextEditingController {
         type: _PatternType.thematicBreak,
         priority: 1,
       ),
+      // Virtual newline pattern (to hide markers)
+      _MarkdownPattern(
+        RegExp(r'\u200B'),
+        (match) => TextStyle(fontSize: 0, color: Colors.transparent),
+        type: _PatternType.virtualNewline,
+        priority: 10,
+      ),
     ];
 
     // Collect all matches
     List<_MatchRange> ranges = [];
 
     for (final pattern in patterns) {
-      for (final match in pattern.exp.allMatches(text)) {
+      for (final match in pattern.exp.allMatches(displayText)) {
         final isOnFocusedLine =
             focusedLineRange != null &&
             match.start >= focusedLineRange.$1 &&
@@ -291,7 +480,15 @@ class MarkdownEditingController extends TextEditingController {
         // Style for hidden syntax (zero size)
         final hiddenStyle = combinedStyle.copyWith(fontSize: 0.0);
 
-        if (pattern.type == _PatternType.header) {
+        if (pattern.type == _PatternType.virtualNewline) {
+          // Hide zero-width markers with zero-size text
+          matchSpans.add(
+            TextSpan(
+              text: match.group(0),
+              style: hiddenStyle,
+            ),
+          );
+        } else if (pattern.type == _PatternType.header) {
           // Group 1: Syntax (e.g. "# "), Group 2: Content
           final syntax = match.group(1)!;
           final content = match.group(2)!;
@@ -363,7 +560,6 @@ class MarkdownEditingController extends TextEditingController {
           final linkStyle = combinedStyle;
 
           // Store the link range for offset-based tap detection
-          // The link text starts after '[' and ends before ']('
           final linkTextStart = match.start + bracket.length;
           final linkTextEnd = linkTextStart + linkText.length;
           _linkRanges.add((start: linkTextStart, end: linkTextEnd, url: url));
@@ -409,20 +605,17 @@ class MarkdownEditingController extends TextEditingController {
             matchSpans.add(TextSpan(text: closeParen, style: hiddenStyle));
           } else {
             // On unfocused line: hide all syntax and show image widget
-            // Strategy: WidgetSpan occupies 1 text position, so we need (syntaxLength - 1)
-            // zero-width spaces to maintain correct cursor positioning.
-            
-            // Add the image widget with built-in vertical padding
+            // The newlines for spacing are already in the text
+
             matchSpans.add(
               WidgetSpan(
                 alignment: PlaceholderAlignment.middle,
                 child: _buildImageWidget(url, altText, combinedStyle),
               ),
             );
-            
+
             // Fill remaining character positions with zero-width spaces (hidden)
             // WidgetSpan occupies 1 position, so we need (syntaxLength - 1) more
-            // to match the source text length exactly.
             final int zwspCount = syntaxLength - 1;
             if (zwspCount > 0) {
               matchSpans.add(TextSpan(text: '\u200B' * zwspCount, style: hiddenStyle));
@@ -464,16 +657,17 @@ class MarkdownEditingController extends TextEditingController {
       }
     }
 
-    // Sort by start position, then by length (longer matches first)
+    // Sort by start position, then by priority (higher first), then by length
     ranges.sort((a, b) {
       final startCompare = a.start.compareTo(b.start);
       if (startCompare != 0) return startCompare;
+      final priorityCompare = b.priority.compareTo(a.priority);
+      if (priorityCompare != 0) return priorityCompare;
       final lengthCompare = b.end.compareTo(a.end);
-      if (lengthCompare != 0) return lengthCompare;
-      return b.priority.compareTo(a.priority);
+      return lengthCompare;
     });
 
-    // Remove overlapping ranges
+    // Remove overlapping ranges (keep higher priority)
     List<_MatchRange> filteredRanges = [];
     int lastEnd = 0;
     for (final range in ranges) {
@@ -490,7 +684,7 @@ class MarkdownEditingController extends TextEditingController {
       if (range.start > textCursor) {
         spans.add(
           TextSpan(
-            text: text.substring(textCursor, range.start),
+            text: displayText.substring(textCursor, range.start),
             style: defaultStyle,
           ),
         );
@@ -501,9 +695,9 @@ class MarkdownEditingController extends TextEditingController {
     }
 
     // Add remaining text
-    if (textCursor < text.length) {
+    if (textCursor < displayText.length) {
       spans.add(
-        TextSpan(text: text.substring(textCursor), style: defaultStyle),
+        TextSpan(text: displayText.substring(textCursor), style: defaultStyle),
       );
     }
 
@@ -511,7 +705,7 @@ class MarkdownEditingController extends TextEditingController {
   }
 }
 
-enum _PatternType { header, list, inline, link, thematicBreak, image }
+enum _PatternType { header, list, inline, link, thematicBreak, image, virtualNewline }
 
 class _MarkdownPattern {
   final RegExp exp;
