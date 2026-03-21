@@ -147,7 +147,7 @@ class MarkdownEditingController extends TextEditingController {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4.0),
         child: SizedBox(
-          height: fontSize * imageHeightLines,
+          height: fontSize * imageHeightLines * (style.height ?? 1.2),
           child: _buildImageWithSource(url, altText),
         ),
       ),

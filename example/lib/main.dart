@@ -103,14 +103,14 @@ Try typing here!
                     SnackBar(content: Text('Image tapped: $url')),
                   );
                 },
-                style: const TextStyle(fontSize: 16),
+                style: const TextStyle(fontSize: 16, height: 1.2),
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                   hintText: 'Type markdown here...',
                 ),
                 // Set image height to 10 lines (160px with fontSize 16)
                 // Default is 5 lines if not specified
-                imageHeightLines: 19,
+                imageHeightLines: 16,
               ),
             ),
           ),
