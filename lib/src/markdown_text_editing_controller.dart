@@ -218,42 +218,39 @@ class MarkdownEditingController extends TextEditingController {
   Widget _buildTableWidget(_TableData tableData, int tableIndex, TextStyle style, BuildContext context) {
     final int numColumns = tableData.headers.length;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(),
-      child: Table(
-        border: TableBorder.all(color: Colors.grey.shade400),
-        defaultColumnWidth: const IntrinsicColumnWidth(),
-        children: [
-          TableRow(
-            decoration: BoxDecoration(color: Colors.grey.shade100),
+    return Table(
+      border: TableBorder.all(color: Colors.grey.shade400),
+      defaultColumnWidth: const IntrinsicColumnWidth(),
+      children: [
+        TableRow(
+          decoration: BoxDecoration(color: Colors.grey.shade100),
+          children: List.generate(numColumns, (col) {
+            final String cellText = col < tableData.headers.length ? tableData.headers[col] : '';
+            final TextAlign align = col < tableData.alignments.length ? tableData.alignments[col] : TextAlign.left;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Text(
+                cellText,
+                style: style.copyWith(fontWeight: FontWeight.bold),
+                textAlign: align,
+              ),
+            );
+          }),
+        ),
+        ...tableData.rows.asMap().entries.map((entry) {
+          final List<String> row = entry.value;
+          return TableRow(
             children: List.generate(numColumns, (col) {
-              final String cellText = col < tableData.headers.length ? tableData.headers[col] : '';
+              final String cellText = col < row.length ? row[col] : '';
               final TextAlign align = col < tableData.alignments.length ? tableData.alignments[col] : TextAlign.left;
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Text(
-                  cellText,
-                  style: style.copyWith(fontWeight: FontWeight.bold),
-                  textAlign: align,
-                ),
+                child: Text(cellText, style: style, textAlign: align),
               );
             }),
-          ),
-          ...tableData.rows.asMap().entries.map((entry) {
-            final List<String> row = entry.value;
-            return TableRow(
-              children: List.generate(numColumns, (col) {
-                final String cellText = col < row.length ? row[col] : '';
-                final TextAlign align = col < tableData.alignments.length ? tableData.alignments[col] : TextAlign.left;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Text(cellText, style: style, textAlign: align),
-                );
-              }),
-            );
-          }),
-        ],
-      ),
+          );
+        }),
+      ],
     );
   }
 
@@ -314,6 +311,7 @@ class MarkdownEditingController extends TextEditingController {
     }
   }
 
+  // @remind Text Updater for Oversized Widgets
   /// Internal method that performs the actual newline update logic.
   /// Must be called within an _isUpdatingText guard to prevent recursion.
   void _updateTextWithNewlinesInternal() {
@@ -327,15 +325,7 @@ class MarkdownEditingController extends TextEditingController {
       return;
     }
 
-    // Determine which line range is "focused" (where we show raw syntax)
-    // When _focusedLine is null, ALL images should have newlines (all rendered as widgets)
-    // When _focusedLine is set, only images NOT on that line should have newlines
-    (int, int)? focusedLineRange;
-    if (_focusedLine != null) {
-      focusedLineRange = _getLineRange(_focusedLine!, cleanText);
-    }
-
-    // Colect all image and table matches, then process in order
+    // Collect all image and table matches, then process in order
     final allMatches = <({int start, int end, String text, _PatternType type})>[];
 
     for (final RegExpMatch match in _imageRegExp.allMatches(cleanText)) {
@@ -360,16 +350,6 @@ class MarkdownEditingController extends TextEditingController {
       );
     }
 
-    for (final RegExpMatch match in _headerRegExp.allMatches(cleanText)) {
-      allMatches.add(
-        (
-          start: match.start,
-          end: match.end,
-          text: match.group(0)!,
-          type: _PatternType.header,
-        ),
-      );
-    }
     // Sort by start position to ensure correct processing order
     allMatches.sort((a, b) => a.start.compareTo(b.start));
 
@@ -378,51 +358,9 @@ class MarkdownEditingController extends TextEditingController {
 
     for (final match in allMatches) {
       if (match.start < lastEnd) continue; // skip overlapping
-      buffer.write(cleanText.substring(lastEnd, match.start));
-
-      if (match.type == _PatternType.image) {
-        final bool isOnFocusedLine = focusedLineRange != null && match.start >= focusedLineRange.$1 && match.start < focusedLineRange.$2;
-
-        if (!isOnFocusedLine) {
-          final int linesAbove = (imageHeightLines - 1) ~/ 2;
-          if (linesAbove > 0) {
-            buffer.write(_virtualNewlineMarker * linesAbove);
-          }
-          buffer.write(match.text);
-          final int linesBelow = (imageHeightLines - 1) - linesAbove;
-          if (linesBelow > 0) {
-            buffer.write(_virtualNewlineMarker * linesBelow);
-          }
-        } else {
-          buffer.write(match.text);
-        }
-      } else if (match.type == _PatternType.table) {
-        // Check if focused line is inside the table
-        final bool isInFocusedTable = focusedLineRange != null && match.start < focusedLineRange.$2 && match.end > focusedLineRange.$1;
-
-        if (!isInFocusedTable) {
-          // Table rendered as widget — add virtual newlines for spacing
-          // Estimate height: count data lines in the table
-          final int tableLineCount = match.text.split('\n').where((l) => l.trim().isNotEmpty).length;
-          // Use roughly 1 virtual newline per table row for spacing
-          final int linesAbove = (tableLineCount - 1) ~/ 2;
-          final int linesBelow = (tableLineCount - 1) - linesAbove;
-          if (linesAbove > 0) {
-            buffer.write(_virtualNewlineMarker * linesAbove);
-          }
-          buffer.write(match.text);
-          if (linesBelow > 0) {
-            buffer.write(_virtualNewlineMarker * linesBelow);
-          }
-        } else {
-          buffer.write(match.text);
-        }
-      } else if (match.type == _PatternType.header) {
-        // Always render one line above to avoid having headers be cut off
-        buffer
-          ..write(_virtualNewlineMarker * 1)
-          ..write(match.text);
-      }
+      buffer
+        ..write(cleanText.substring(lastEnd, match.start))
+        ..write(match.text);
 
       lastEnd = match.end;
     }
@@ -527,7 +465,7 @@ class MarkdownEditingController extends TextEditingController {
     return _parseMarkdown(text, style, context);
   }
 
-  // @remind Regular Experssions
+  // @remind Regular Expressions
   /// Pattern to match image syntax (with full groups for parsing)
   static final _imageRegExp = RegExp(r'(!\[)([^\]]*)(\]\()([^)]+)(\))');
 
@@ -559,7 +497,11 @@ class MarkdownEditingController extends TextEditingController {
         final int headingLevel = match.group(1)!.trim().length;
         final fontSizes = [28.0, 24.0, 20.0, 18.0, 16.0, 14.0];
         final double fontSize = fontSizes[headingLevel.clamp(1, 6) - 1];
-        return TextStyle(fontWeight: FontWeight.bold, fontSize: fontSize, color: Colors.blueAccent);
+        return TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: fontSize,
+          color: Colors.blueAccent,
+        );
       }, type: _PatternType.header),
       // Unordered List
       _MarkdownPattern(RegExp(r'^([ \t]*)([*+-])([ \t]+)', multiLine: true), (match) => const TextStyle(fontWeight: FontWeight.w500), type: _PatternType.list),

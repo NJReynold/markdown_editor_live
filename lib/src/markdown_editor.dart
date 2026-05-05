@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:markdown_editor_live/src/markdown_text_editing_controller.dart';
 
 class MarkdownEditor extends StatefulWidget {
-
   const MarkdownEditor({
     super.key,
     this.initialValue,
@@ -291,6 +290,8 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
             const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16)),
         maxLines: null,
         keyboardType: TextInputType.multiline,
+        // forceStrutHeight must be false to prevent headers from clipping outside the TextField bounds
+        strutStyle: const StrutStyle(forceStrutHeight: false),
       ),
     );
   }
