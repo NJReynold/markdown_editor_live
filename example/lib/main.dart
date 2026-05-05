@@ -12,10 +12,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Markdown Editor Demo',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
+      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple), useMaterial3: true),
       home: const MyHomePage(title: 'Markdown Editor Demo'),
     );
   }
@@ -51,6 +48,14 @@ My favorite search engine is [Duck Duck Go](https://duckduckgo.com "The best sea
 
 *Tap the image to see the tap handler in action!*
 
+## Tables
+
+| Feature | Status | Notes |
+|:--------|:------:|------:|
+| Headers | Done | H1-H6 support |
+| Bold | Done | **text** syntax |
+| Tables | New | Click cells to edit! |
+
 ## Nested Lists (Try pressing Tab!)
 
 - Level 1 item
@@ -67,6 +72,7 @@ My favorite search engine is [Duck Duck Go](https://duckduckgo.com "The best sea
    2. Another nested item
 2. Second item
 
+
 ```
 Block code
 ```
@@ -77,10 +83,7 @@ Try typing here!
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
+      appBar: AppBar(backgroundColor: Theme.of(context).colorScheme.inversePrimary, title: Text(widget.title)),
       body: Row(
         children: [
           Expanded(
@@ -94,20 +97,13 @@ Try typing here!
                   });
                 },
                 onLinkTap: (url) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Link tapped: $url')),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Link tapped: $url')));
                 },
                 onImageTap: (url) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Image tapped: $url')),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Image tapped: $url')));
                 },
                 style: const TextStyle(fontSize: 16, height: 1.2),
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Type markdown here...',
-                ),
+                decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Type markdown here...'),
                 // Set image height to 10 lines (160px with fontSize 16)
                 // Default is 5 lines if not specified
                 imageHeightLines: 16,

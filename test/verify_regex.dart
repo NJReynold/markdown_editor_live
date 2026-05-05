@@ -3,9 +3,9 @@ void main() {
     r'^ {0,3}((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})$',
     multiLine: true,
   );
-  final text = '---\nText';
+  const text = '---\nText';
 
-  final matches = regex.allMatches(text);
+  final Iterable<RegExpMatch> matches = regex.allMatches(text);
   for (final match in matches) {
     print('Match: "${match.group(0)}"');
     print('Start: ${match.start}, End: ${match.end}');

@@ -9,7 +9,7 @@ void main() {
       expect(controller.text, 'Hello');
     });
 
-    testWidgets('Builds TextSpan with styles', (WidgetTester tester) async {
+    testWidgets('Builds TextSpan with styles', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -18,7 +18,7 @@ void main() {
                 final controller = MarkdownEditingController(
                   text: '# Header\n\n**Bold**',
                 );
-                final span = controller.buildTextSpan(
+                final TextSpan span = controller.buildTextSpan(
                   context: context,
                   withComposing: false,
                 );
@@ -42,7 +42,7 @@ void main() {
       );
     });
 
-    testWidgets('Parses bold text correctly', (WidgetTester tester) async {
+    testWidgets('Parses bold text correctly', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -51,7 +51,7 @@ void main() {
                 final controller = MarkdownEditingController(
                   text: 'This is **bold** text',
                 );
-                final span = controller.buildTextSpan(
+                final TextSpan span = controller.buildTextSpan(
                   context: context,
                   withComposing: false,
                 );
