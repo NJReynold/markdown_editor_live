@@ -298,15 +298,6 @@ class MarkdownEditingController extends TextEditingController {
   // NEWLINE INJECTION FOR IMAGE SPACING
   // ============================================================
 
-  /// Pattern to match image syntax (with full groups for parsing)
-  static final _imagePattern = RegExp(r'(!\[)([^\]]*)(\]\()([^)]+)(\))');
-
-  /// Pattern to match markdown table blocks (header + separator + data rows)
-  static final _tablePattern = RegExp(
-    r'^(\|[^\n]+\|)[ \t]*\n(\|[ \t:]*-+[ \t:]*(?:\|[ \t:]*-+[ \t:]*)*\|)[ \t]*\n((?:\|[^\n]*\|[ \t]*(?:\n|$))*)',
-    multiLine: true,
-  );
-
   /// Pattern to match our virtual newlines (marked with special comment)
   /// We use zero-width space + newline to mark virtual newlines
   static const _virtualNewlineMarker = '\u200B\n';
@@ -326,8 +317,6 @@ class MarkdownEditingController extends TextEditingController {
   /// Internal method that performs the actual newline update logic.
   /// Must be called within an _isUpdatingText guard to prevent recursion.
   void _updateTextWithNewlinesInternal() {
-    // @remind I believe the place where extra lines are added for images
-
     // First, clean any existing virtual newlines from the current text
     final String cleanText = _removeVirtualNewlines(super.text);
 
@@ -349,7 +338,7 @@ class MarkdownEditingController extends TextEditingController {
     // Colect all image and table matches, then process in order
     final allMatches = <({int start, int end, String text, _PatternType type})>[];
 
-    for (final RegExpMatch match in _imagePattern.allMatches(cleanText)) {
+    for (final RegExpMatch match in _imageRegExp.allMatches(cleanText)) {
       allMatches.add(
         (
           start: match.start,
@@ -360,13 +349,24 @@ class MarkdownEditingController extends TextEditingController {
       );
     }
 
-    for (final RegExpMatch match in _tablePattern.allMatches(cleanText)) {
+    for (final RegExpMatch match in _tableRegExp.allMatches(cleanText)) {
       allMatches.add(
         (
           start: match.start,
           end: match.end,
           text: match.group(0)!,
           type: _PatternType.table,
+        ),
+      );
+    }
+
+    for (final RegExpMatch match in _headerRegExp.allMatches(cleanText)) {
+      allMatches.add(
+        (
+          start: match.start,
+          end: match.end,
+          text: match.group(0)!,
+          type: _PatternType.header,
         ),
       );
     }
@@ -407,8 +407,6 @@ class MarkdownEditingController extends TextEditingController {
           // Use roughly 1 virtual newline per table row for spacing
           final int linesAbove = (tableLineCount - 1) ~/ 2;
           final int linesBelow = (tableLineCount - 1) - linesAbove;
-          print(linesAbove);
-          print(linesBelow);
           if (linesAbove > 0) {
             buffer.write(_virtualNewlineMarker * linesAbove);
           }
@@ -419,6 +417,11 @@ class MarkdownEditingController extends TextEditingController {
         } else {
           buffer.write(match.text);
         }
+      } else if (match.type == _PatternType.header) {
+        // Always render one line above to avoid having headers be cut off
+        buffer
+          ..write(_virtualNewlineMarker * 1)
+          ..write(match.text);
       }
 
       lastEnd = match.end;
@@ -524,6 +527,19 @@ class MarkdownEditingController extends TextEditingController {
     return _parseMarkdown(text, style, context);
   }
 
+  // @remind Regular Experssions
+  /// Pattern to match image syntax (with full groups for parsing)
+  static final _imageRegExp = RegExp(r'(!\[)([^\]]*)(\]\()([^)]+)(\))');
+
+  /// Pattern to match markdown table blocks (header + separator + data rows)
+  static final _tableRegExp = RegExp(
+    r'^(\|[^\n]+\|)[ \t]*\n(\|[ \t:]*-+[ \t:]*(?:\|[ \t:]*-+[ \t:]*)*\|)[ \t]*\n((?:\|[^\n]*\|[ \t]*(?:\n|$))*)',
+    multiLine: true,
+  );
+
+  /// Pattern to match markdown header blocks
+  static final _headerRegExp = RegExp(r'^(#{1,6}\s+)(.*)$', multiLine: true);
+
   TextSpan _parseMarkdown(String displayText, TextStyle defaultStyle, BuildContext context) {
     final List<InlineSpan> spans = [];
 
@@ -535,10 +551,11 @@ class MarkdownEditingController extends TextEditingController {
       focusedLineRangeSource = _getLineRange(_focusedLine!, _sourceText);
     }
 
+    // @remind Patterns
     // Pattern definitions
     final patterns = <_MarkdownPattern>[
       // Headers: show # only on focused line
-      _MarkdownPattern(RegExp(r'^(#{1,6}\s+)(.*)$', multiLine: true), (match) {
+      _MarkdownPattern(_headerRegExp, (match) {
         final int headingLevel = match.group(1)!.trim().length;
         final fontSizes = [28.0, 24.0, 20.0, 18.0, 16.0, 14.0];
         final double fontSize = fontSizes[headingLevel.clamp(1, 6) - 1];
@@ -578,9 +595,9 @@ class MarkdownEditingController extends TextEditingController {
         priority: 3,
       ),
       // Images ![alt text](url)
-      _MarkdownPattern(_imagePattern, (match) => const TextStyle(), type: _PatternType.image),
+      _MarkdownPattern(_imageRegExp, (match) => const TextStyle(), type: _PatternType.image),
       // Tables |header| ... |
-      _MarkdownPattern(_tablePattern, (match) => const TextStyle(), type: _PatternType.table),
+      _MarkdownPattern(_tableRegExp, (match) => const TextStyle(), type: _PatternType.table),
       // Thematic break
       _MarkdownPattern(
         RegExp(r'^ {0,3}((\*[ \t]*){3,}|(-[ \t]*){3,}|(_[ \t]*){3,})$', multiLine: true),
@@ -869,6 +886,7 @@ class MarkdownEditingController extends TextEditingController {
   }
 }
 
+// @remind _PatternType
 enum _PatternType { header, list, inline, blockCode, link, thematicBreak, image, table, virtualNewline }
 
 class _MarkdownPattern {
