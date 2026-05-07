@@ -14,7 +14,7 @@ void main() {
       String extractText(TextSpan span) {
         String text = span.text ?? '';
         if (span.children != null) {
-          for (final InlineSpan child in span.children!) {
+          for (final child in span.children!) {
             if (child is TextSpan) {
               text += extractText(child);
             }
@@ -27,7 +27,7 @@ void main() {
       bool hasInvisibleSyntax(TextSpan span) {
         if (span.style?.fontSize == 0.0) return true;
         if (span.children != null) {
-          for (final InlineSpan child in span.children!) {
+          for (final child in span.children!) {
             if (child is TextSpan && hasInvisibleSyntax(child)) return true;
           }
         }
@@ -36,7 +36,7 @@ void main() {
 
       // Case 1: No focus - Syntax should be hidden but text preserved
       controller.focusedLine = null;
-      final TextSpan span1 = controller.buildTextSpan(
+      final span1 = controller.buildTextSpan(
         context: _MockContext(),
         style: const TextStyle(),
         withComposing: false,
@@ -55,7 +55,7 @@ void main() {
 
       // Case 2: Focus on line 0 - Header syntax visible
       controller.focusedLine = 0;
-      final TextSpan span2 = controller.buildTextSpan(
+      final span2 = controller.buildTextSpan(
         context: _MockContext(),
         style: const TextStyle(),
         withComposing: false,
@@ -72,7 +72,7 @@ void main() {
 
       // Case 3: Focus on line 2 - Bold syntax visible
       controller.focusedLine = 2;
-      final TextSpan span3 = controller.buildTextSpan(
+      final span3 = controller.buildTextSpan(
         context: _MockContext(),
         style: const TextStyle(),
         withComposing: false,
@@ -84,5 +84,5 @@ void main() {
 
 class _MockContext extends BuildContext {
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

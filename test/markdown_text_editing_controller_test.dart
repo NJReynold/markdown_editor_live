@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:markdown_editor_live/src/markdown_text_editing_controller.dart';
+import 'package:markdown_editor_live/markdown_editor_live.dart';
 
 void main() {
   group('MarkdownEditingController', () {
@@ -9,7 +9,7 @@ void main() {
       expect(controller.text, 'Hello');
     });
 
-    testWidgets('Builds TextSpan with styles', (tester) async {
+    testWidgets('Builds TextSpan with styles', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -18,7 +18,7 @@ void main() {
                 final controller = MarkdownEditingController(
                   text: '# Header\n\n**Bold**',
                 );
-                final TextSpan span = controller.buildTextSpan(
+                final span = controller.buildTextSpan(
                   context: context,
                   withComposing: false,
                 );
@@ -42,7 +42,7 @@ void main() {
       );
     });
 
-    testWidgets('Parses bold text correctly', (tester) async {
+    testWidgets('Parses bold text correctly', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -51,7 +51,7 @@ void main() {
                 final controller = MarkdownEditingController(
                   text: 'This is **bold** text',
                 );
-                final TextSpan span = controller.buildTextSpan(
+                final span = controller.buildTextSpan(
                   context: context,
                   withComposing: false,
                 );

@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown_editor_live/src/markdown_text_editing_controller.dart';
 
 void main() {
-  testWidgets('Image span structure verification', (tester) async {
+  testWidgets('Image span structure verification', (WidgetTester tester) async {
     final controller = MarkdownEditingController();
     controller.text = '![alt](http://img.com)';
 
@@ -15,13 +15,13 @@ void main() {
         home: Builder(
           builder: (context) {
             // Trigger buildTextSpan manually to inspect it
-            final TextSpan span = controller.buildTextSpan(
+            final span = controller.buildTextSpan(
               context: context,
               style: const TextStyle(fontSize: 10.0), // base font size
               withComposing: false,
             );
 
-            final List<InlineSpan> children = span.children!;
+            final children = span.children!;
             expect(children.length, greaterThanOrEqualTo(3));
 
             // 1. Verify split text structure for cursor fix
@@ -63,14 +63,14 @@ void main() {
             final gestureDetector = widgetSpan.child as GestureDetector;
 
             expect(gestureDetector.child, isA<Padding>());
-            final padding = gestureDetector.child! as Padding;
+            final padding = gestureDetector.child as Padding;
             expect(
               padding.padding,
               const EdgeInsets.symmetric(horizontal: 4.0),
             );
 
             expect(padding.child, isA<SizedBox>());
-            final sizedBox = padding.child! as SizedBox;
+            final sizedBox = padding.child as SizedBox;
 
             // 3. Verify sizing: fixed height, unconstrained width
             // Target height calculation: fontSize (10) * 1.4 * 5 = 14 * 5 = 70.
@@ -87,7 +87,7 @@ void main() {
 
             // 4. Verify Image fit
             expect(sizedBox.child, isA<Image>());
-            final image = sizedBox.child! as Image;
+            final image = sizedBox.child as Image;
             expect(image.fit, BoxFit.contain, reason: 'Fit should be contain');
 
             return const SizedBox();
