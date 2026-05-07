@@ -10,6 +10,7 @@ class CodeBlockWidget extends StatefulWidget {
     required this.language,
     required this.code,
     required this.style,
+    this.showMarkdownSource = false,
     this.onCodeChanged,
     this.onDelete,
     this.onMovePrevious,
@@ -21,6 +22,7 @@ class CodeBlockWidget extends StatefulWidget {
   final String language;
   final String code;
   final TextStyle style;
+  final bool showMarkdownSource;
   final BlockTextChangedCallback? onCodeChanged;
   final BlockDeleteCallback? onDelete;
   final BlockNavigateCallback? onMovePrevious;
@@ -35,6 +37,7 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
   bool _hasFocus = false;
+  bool _isEditing = false;
   @override
   void initState() {
     super.initState();
@@ -60,8 +63,18 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
   }
 
   void _onFocusChanged() {
-    setState(() => _hasFocus = _focusNode.hasFocus);
+    setState(() {
+      _hasFocus = _focusNode.hasFocus;
+      _isEditing = _hasFocus;
+    });
     widget.onFocusChanged?.call(_hasFocus);
+  }
+
+  void _enterEditMode() {
+    setState(() => _isEditing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -99,32 +112,50 @@ class _CodeBlockWidgetState extends State<CodeBlockWidget> {
     final TextStyle codeStyle = widget.style.copyWith(fontFamily: 'monospace');
     final TextStyle fenceStyle = codeStyle.copyWith(color: Colors.grey.shade500);
     final String langLabel = widget.language.isNotEmpty ? widget.language : '';
-    return Focus(
-      onKeyEvent: _handleKeyEvent,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(4),
+
+    if (!_isEditing) {
+      return GestureDetector(
+        onTap: _enterEditMode,
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: Text('\`\`\`$langLabel\n${_controller.text}\n\`\`\`\n', style: codeStyle),
         ),
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_hasFocus) Text('```$langLabel', style: fenceStyle),
-            TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              style: codeStyle,
-              maxLines: null,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+      );
+    }
+
+    return SelectionContainer.disabled(
+      child: Focus(
+        onKeyEvent: _handleKeyEvent,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('```$langLabel', style: fenceStyle),
+              TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                style: codeStyle,
+                maxLines: null,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onChanged: widget.onCodeChanged,
               ),
-              onChanged: widget.onCodeChanged,
-            ),
-            if (_hasFocus) Text('```', style: fenceStyle),
-          ],
+              Text('```', style: fenceStyle),
+            ],
+          ),
         ),
       ),
     );

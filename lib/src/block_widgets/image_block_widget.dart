@@ -9,6 +9,7 @@ class ImageBlockWidget extends StatefulWidget {
     required this.url,
     required this.altText,
     required this.style,
+    this.showMarkdownSource = false,
     this.imageHeightLines = 5,
     this.onImageTap,
     this.onChanged,
@@ -22,6 +23,7 @@ class ImageBlockWidget extends StatefulWidget {
   final String url;
   final String altText;
   final TextStyle style;
+  final bool showMarkdownSource;
   final int imageHeightLines;
   final void Function(String url)? onImageTap;
   final void Function(String url, String altText)? onChanged;
@@ -121,30 +123,46 @@ class _ImageBlockWidgetState extends State<ImageBlockWidget> {
   @override
   Widget build(BuildContext context) {
     if (_isEditing) {
-      return Focus(
-        onKeyEvent: _handleKeyEvent,
-        child: TextField(
-          controller: _controller,
-          focusNode: _focusNode,
-          style: widget.style.copyWith(color: Colors.blue.shade300),
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(vertical: 4),
+      return SelectionContainer.disabled(
+        child: Focus(
+          onKeyEvent: _handleKeyEvent,
+          child: TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            style: widget.style.copyWith(color: Colors.blue.shade300),
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 4),
+            ),
           ),
         ),
       );
     }
 
-    final double fontSize = widget.style.fontSize ?? 16.0;
-    final double height = fontSize * widget.imageHeightLines * (widget.style.height ?? 1.2);
+    if (widget.showMarkdownSource && !_isEditing) {
+      return GestureDetector(
+        onTap: _enterEditMode,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            '![${widget.altText}](${widget.url})\n',
+            style: widget.style.copyWith(color: Colors.blue.shade300),
+          ),
+        ),
+      );
+    }
+
+    final double imageHeight = widget.style.fontSize != null
+        ? widget.style.fontSize! * widget.imageHeightLines * 1.5
+        : 120;
 
     return GestureDetector(
       onTap: _enterEditMode,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: SizedBox(
-          height: height,
+          height: imageHeight,
           child: _buildImage(),
         ),
       ),

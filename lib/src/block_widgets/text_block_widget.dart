@@ -10,6 +10,7 @@ class TextBlockWidget extends StatefulWidget {
   const TextBlockWidget({
     required this.text,
     required this.style,
+    this.showMarkdownSource = false,
     this.onTextChanged,
     this.onDelete,
     this.onNewline,
@@ -23,6 +24,7 @@ class TextBlockWidget extends StatefulWidget {
 
   final String text;
   final TextStyle style;
+  final bool showMarkdownSource;
   final BlockTextChangedCallback? onTextChanged;
   final BlockDeleteCallback? onDelete;
   final BlockNewlineCallback? onNewline;
@@ -39,6 +41,7 @@ class TextBlockWidget extends StatefulWidget {
 class _TextBlockWidgetState extends State<TextBlockWidget> {
   late final InlineMarkdownController _controller;
   late final FocusNode _focusNode;
+  bool _isEditing = false;
 
   @override
   void initState() {
@@ -47,6 +50,7 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
       text: widget.text,
       onLinkTap: widget.onLinkTap,
     );
+    _controller.showSyntax = false;
     _focusNode = widget.focusNode ?? FocusNode();
     _focusNode.addListener(_onFocusChanged);
   }
@@ -68,10 +72,19 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
   }
 
   void _onFocusChanged() {
+    final bool hasFocus = _focusNode.hasFocus;
     setState(() {
-      _controller.showSyntax = _focusNode.hasFocus;
+      _isEditing = hasFocus;
+      _controller.showSyntax = hasFocus;
     });
-    widget.onFocusChanged?.call(_focusNode.hasFocus);
+    widget.onFocusChanged?.call(hasFocus);
+  }
+
+  void _enterEditMode() {
+    setState(() => _isEditing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -137,31 +150,51 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      onKeyEvent: _handleKeyEvent,
-      child: TextField(
-        controller: _controller,
-        focusNode: _focusNode,
-        style: widget.style,
-        maxLines: null,
-        decoration: const InputDecoration(
-          border: InputBorder.none,
-          isDense: true,
-          contentPadding: EdgeInsets.symmetric(vertical: 4),
+    if (!_isEditing) {
+      _controller.showSyntax = widget.showMarkdownSource;
+      return GestureDetector(
+        onTap: _enterEditMode,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text.rich(
+            TextSpan(children: [
+              _controller.buildTextSpan(
+                context: context,
+                style: widget.style,
+                withComposing: false,
+              ),
+              const TextSpan(text: '\n'),
+            ]),
+          ),
         ),
-        onChanged: widget.onTextChanged,
-        onTap: _handleTap,
+      );
+    }
+
+    return SelectionContainer.disabled(
+      child: Focus(
+        onKeyEvent: _handleKeyEvent,
+        child: TextField(
+          controller: _controller,
+          focusNode: _focusNode,
+          style: widget.style,
+          maxLines: null,
+          decoration: const InputDecoration(
+            border: InputBorder.none,
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(vertical: 4),
+          ),
+          onChanged: widget.onTextChanged,
+          onTap: _handleTap,
+        ),
       ),
     );
   }
 
   void _handleTap() {
-    if (!_controller.showSyntax) {
-      final offset = _controller.selection.baseOffset;
-      final url = _controller.getLinkUrlAtOffset(offset);
-      if (url != null && widget.onLinkTap != null) {
-        widget.onLinkTap!(url);
-      }
+    final offset = _controller.selection.baseOffset;
+    final url = _controller.getLinkUrlAtOffset(offset);
+    if (url != null && widget.onLinkTap != null) {
+      widget.onLinkTap!(url);
     }
   }
 }

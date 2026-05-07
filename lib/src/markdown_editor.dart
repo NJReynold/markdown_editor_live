@@ -1,6 +1,4 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'package:markdown_editor_live/src/block_widgets.dart';
 import 'package:markdown_editor_live/src/document_model.dart';
@@ -40,16 +38,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
   late List<Block> _blocks;
   late List<FocusNode> _focusNodes;
   late List<GlobalKey> _blockKeys;
-  // -- Multi-block selection --
-  int _lastFocusedBlock = 0;
-  int? _selectionAnchor;
-  int? _selectionFocus;
-  final FocusNode _editorFocusNode = FocusNode();
-
-  bool get _hasBlockSelection => _selectionAnchor != null && _selectionFocus != null;
-  int get _selStart => _hasBlockSelection ? min(_selectionAnchor!, _selectionFocus!) : 0;
-  int get _selEnd => _hasBlockSelection ? max(_selectionAnchor!, _selectionFocus!) : 0;
-  bool _isBlockSelected(int index) => _hasBlockSelection && index >= _selStart && index <= _selEnd;
+  bool _hasSelection = false;
 
   @override
   void initState() {
@@ -59,17 +48,12 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
       _blocks.add(ParagraphBlock(''));
     }
     _focusNodes = List.generate(_blocks.length, (_) => FocusNode());
-    for (final fn in _focusNodes) {
-      fn.addListener(_checkFocusChange);
-    }
     _blockKeys = List.generate(_blocks.length, (_) => GlobalKey());
   }
 
   @override
   void dispose() {
-    _editorFocusNode.dispose();
     for (final FocusNode fn in _focusNodes) {
-      fn.removeListener(_checkFocusChange);
       fn.dispose();
     }
     super.dispose();
@@ -78,157 +62,6 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
   void _notifyChanged() {
     final String markdown = MarkdownSerializer.serialize(_blocks);
     widget.onChanged?.call(markdown);
-  }
-
-  // ----------------------------------------------------------
-  // Multi-block selection
-  // ----------------------------------------------------------
-
-  void _checkFocusChange() {
-    for (var i = 0; i < _focusNodes.length; i++) {
-      if (_focusNodes[i].hasFocus) {
-        _onBlockFocusGained(i);
-        return;
-      }
-    }
-  }
-
-  void _onBlockFocusGained(int index) {
-    if (HardwareKeyboard.instance.isShiftPressed) {
-      setState(() {
-        _selectionAnchor ??= _lastFocusedBlock;
-        _selectionFocus = index;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (index < _focusNodes.length) {
-          _focusNodes[index].unfocus();
-        }
-        _editorFocusNode.requestFocus();
-      });
-    } else {
-      if (_hasBlockSelection) {
-        _clearBlockSelection();
-      }
-      _lastFocusedBlock = index;
-    }
-  }
-
-  void _clearBlockSelection() {
-    setState(() {
-      _selectionAnchor = null;
-      _selectionFocus = null;
-    });
-  }
-
-  void _copySelectedBlocks() {
-    if (!_hasBlockSelection) return;
-    final selected = _blocks.sublist(_selStart, _selEnd + 1);
-    final markdown = MarkdownSerializer.serialize(selected);
-    Clipboard.setData(ClipboardData(text: markdown));
-  }
-
-  void _deleteSelectedBlocks() {
-    if (!_hasBlockSelection) return;
-    setState(() {
-      final start = _selStart;
-      final end = _selEnd;
-      for (var i = end; i >= start; i--) {
-        _blocks.removeAt(i);
-        _focusNodes[i].removeListener(_checkFocusChange);
-        _focusNodes[i].dispose();
-        _focusNodes.removeAt(i);
-        _blockKeys.removeAt(i);
-      }
-      if (_blocks.isEmpty) {
-        _blocks.add(ParagraphBlock(''));
-        final fn = FocusNode()..addListener(_checkFocusChange);
-        _focusNodes.add(fn);
-        _blockKeys.add(GlobalKey());
-      }
-      _selectionAnchor = null;
-      _selectionFocus = null;
-      _lastFocusedBlock = start.clamp(0, _blocks.length - 1);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_lastFocusedBlock < _focusNodes.length) {
-          _focusNodes[_lastFocusedBlock].requestFocus();
-        }
-      });
-      _notifyChanged();
-    });
-  }
-
-  KeyEventResult _handleEditorKeyEvent(FocusNode node, KeyEvent event) {
-    if (!_hasBlockSelection) return KeyEventResult.ignored;
-    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-      return KeyEventResult.ignored;
-    }
-
-    // Shift+Down: extend selection
-    if (event.logicalKey == LogicalKeyboardKey.arrowDown && HardwareKeyboard.instance.isShiftPressed) {
-      if (_selectionFocus! < _blocks.length - 1) {
-        setState(() => _selectionFocus = _selectionFocus! + 1);
-      }
-      return KeyEventResult.handled;
-    }
-
-    // Shift+Up: extend selection
-    if (event.logicalKey == LogicalKeyboardKey.arrowUp && HardwareKeyboard.instance.isShiftPressed) {
-      if (_selectionFocus! > 0) {
-        setState(() => _selectionFocus = _selectionFocus! - 1);
-      }
-      return KeyEventResult.handled;
-    }
-
-    // Ctrl+C: copy
-    if (event.logicalKey == LogicalKeyboardKey.keyC && (HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed)) {
-      _copySelectedBlocks();
-      return KeyEventResult.handled;
-    }
-
-    // Ctrl+X: cut
-    if (event.logicalKey == LogicalKeyboardKey.keyX && (HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed)) {
-      _copySelectedBlocks();
-      _deleteSelectedBlocks();
-      return KeyEventResult.handled;
-    }
-
-    // Delete/Backspace: delete selection
-    if (event.logicalKey == LogicalKeyboardKey.delete || event.logicalKey == LogicalKeyboardKey.backspace) {
-      _deleteSelectedBlocks();
-      return KeyEventResult.handled;
-    }
-
-    // Escape: clear selection, focus anchor
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      final target = _selectionAnchor ?? _lastFocusedBlock;
-      _clearBlockSelection();
-      if (target < _focusNodes.length) {
-        _focusNodes[target].requestFocus();
-      }
-      return KeyEventResult.handled;
-    }
-
-    // Arrow down without shift: clear, go past selection
-    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-      final target = (_selEnd + 1).clamp(0, _blocks.length - 1);
-      _clearBlockSelection();
-      _focusNodes[target].requestFocus();
-      return KeyEventResult.handled;
-    }
-
-    // Arrow up without shift: clear, go before selection
-    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      final target = (_selStart - 1).clamp(0, _blocks.length - 1);
-      _clearBlockSelection();
-      _focusNodes[target].requestFocus();
-      return KeyEventResult.handled;
-    }
-
-    // Any other key: clear selection, focus anchor
-    final target = (_selectionAnchor ?? _lastFocusedBlock).clamp(0, _blocks.length - 1);
-    _clearBlockSelection();
-    _focusNodes[target].requestFocus();
-    return KeyEventResult.handled;
   }
 
   // ----------------------------------------------------------
@@ -305,7 +138,6 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
       }
 
       _blocks.removeAt(index);
-      _focusNodes[index].removeListener(_checkFocusChange);
       _focusNodes[index].dispose();
       _focusNodes.removeAt(index);
       _blockKeys.removeAt(index);
@@ -378,8 +210,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
   void _insertBlockAfter(int index, Block newBlock) {
     final int newIndex = index + 1;
     _blocks.insert(newIndex, newBlock);
-    final newFocusNode = FocusNode()..addListener(_checkFocusChange);
-    _focusNodes.insert(newIndex, newFocusNode);
+    _focusNodes.insert(newIndex, FocusNode());
     _blockKeys.insert(newIndex, GlobalKey());
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -482,54 +313,37 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
     final InputBorder border = effectiveDecoration.border ?? const OutlineInputBorder();
     final EdgeInsetsGeometry padding = effectiveDecoration.contentPadding ?? const EdgeInsets.symmetric(horizontal: 12, vertical: 16);
 
-    return Focus(
-      focusNode: _editorFocusNode,
-      onKeyEvent: _handleEditorKeyEvent,
-      child: Container(
-        decoration: BoxDecoration(
-          border: border is OutlineInputBorder ? Border.fromBorderSide(border.borderSide) : null,
-          borderRadius: border is OutlineInputBorder ? border.borderRadius : null,
-        ),
-        child: SelectionArea(
-          child: ListView.builder(
-            padding: padding.resolve(TextDirection.ltr),
-            itemCount: _blocks.length,
-            itemBuilder: (context, index) =>
-                _buildBlock(index, effectiveStyle),
-          ),
+    return Container(
+      decoration: BoxDecoration(
+        border: border is OutlineInputBorder ? Border.fromBorderSide(border.borderSide) : null,
+        borderRadius: border is OutlineInputBorder ? border.borderRadius : null,
+      ),
+      child: SelectionArea(
+        onSelectionChanged: (content) {
+          final bool hasSelection = content != null && content.plainText.isNotEmpty;
+          if (hasSelection != _hasSelection) {
+            setState(() => _hasSelection = hasSelection);
+          }
+        },
+        child: ListView.builder(
+          padding: padding.resolve(TextDirection.ltr),
+          itemCount: _blocks.length,
+          itemBuilder: (context, index) =>
+              _buildBlock(index, effectiveStyle),
         ),
       ),
     );
   }
 
-  /* List<Widget> */
   Widget _buildBlock(int index, TextStyle style) {
     final Block block = _blocks[index];
 
-    // When selected: show raw markdown as SelectableText for native copy
-    if (_isBlockSelected(index)) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        color: Colors.blue.withValues(alpha: 0.15),
-        child: SelectableText(
-          block.toMarkdown(),
-          style: style.copyWith(
-            fontFamily: 'monospace',
-            color: Colors.grey.shade800,
-          ),
-        ),
-      );
-    }
-
-    // When not selected: render the interactive block widget
-    // Wrap in SelectionContainer.disabled so SelectionArea
-    // doesn't interfere with TextField editing.
-    Widget blockWidget = switch (block) {
+    return switch (block) {
       ParagraphBlock() => TextBlockWidget(
         key: _blockKeys[index],
         text: block.text,
         style: style,
+        showMarkdownSource: _hasSelection,
         focusNode: _focusNodes[index],
         onTextChanged: (text) => _onBlockTextChanged(index, text),
         onDelete: () => _onBlockDelete(index),
@@ -543,6 +357,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
         level: block.level,
         text: block.text,
         style: style,
+        showMarkdownSource: _hasSelection,
         focusNode: _focusNodes[index],
         onTextChanged: (text) => _onBlockTextChanged(index, text),
         onDelete: () => _onBlockDelete(index),
@@ -557,6 +372,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
         marker: block.marker,
         text: block.text,
         style: style,
+        showMarkdownSource: _hasSelection,
         focusNode: _focusNodes[index],
         onTextChanged: (text) => _onBlockTextChanged(index, text),
         onDelete: () => _onBlockDelete(index),
@@ -572,6 +388,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
         language: block.language,
         code: block.code,
         style: style,
+        showMarkdownSource: _hasSelection,
         focusNode: _focusNodes[index],
         onCodeChanged: (text) => _onBlockTextChanged(index, text),
         onDelete: () => _onBlockDelete(index),
@@ -584,6 +401,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
         alignments: block.alignments,
         rows: block.rows,
         style: style,
+        showMarkdownSource: _hasSelection,
         focusNode: _focusNodes[index],
         onCellChanged: (row, col, text) => _onTableCellChanged(index, row, col, text),
         onMovePrevious: () => _onMoveToPrevious(index),
@@ -594,6 +412,7 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
         url: block.url,
         altText: block.altText,
         style: style,
+        showMarkdownSource: _hasSelection,
         imageHeightLines: widget.imageHeightLines,
         onImageTap: widget.onImageTap,
         focusNode: _focusNodes[index],
@@ -610,7 +429,5 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
         key: _blockKeys[index],
       ),
     };
-
-    return SelectionContainer.disabled(child: blockWidget);
   }
 }

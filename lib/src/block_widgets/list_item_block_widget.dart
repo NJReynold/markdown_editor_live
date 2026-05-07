@@ -13,6 +13,7 @@ class ListItemBlockWidget extends StatefulWidget {
     required this.marker,
     required this.text,
     required this.style,
+    this.showMarkdownSource = false,
     this.onTextChanged,
     this.onDelete,
     this.onNewline,
@@ -29,6 +30,7 @@ class ListItemBlockWidget extends StatefulWidget {
   final String marker;
   final String text;
   final TextStyle style;
+  final bool showMarkdownSource;
   final BlockTextChangedCallback? onTextChanged;
   final BlockDeleteCallback? onDelete;
   final BlockNewlineCallback? onNewline;
@@ -47,6 +49,7 @@ class _ListItemBlockWidgetState extends State<ListItemBlockWidget> {
   late final InlineMarkdownController _controller;
   late final FocusNode _focusNode;
   bool _hasFocus = false;
+  bool _isEditing = false;
   @override
   void initState() {
     super.initState();
@@ -54,6 +57,7 @@ class _ListItemBlockWidgetState extends State<ListItemBlockWidget> {
       text: widget.text,
       onLinkTap: widget.onLinkTap,
     );
+    _controller.showSyntax = false;
     _focusNode = widget.focusNode ?? FocusNode();
     _focusNode.addListener(_onFocusChanged);
   }
@@ -77,9 +81,17 @@ class _ListItemBlockWidgetState extends State<ListItemBlockWidget> {
   void _onFocusChanged() {
     setState(() {
       _hasFocus = _focusNode.hasFocus;
+      _isEditing = _hasFocus;
       _controller.showSyntax = _hasFocus;
     });
     widget.onFocusChanged?.call(_hasFocus);
+  }
+
+  void _enterEditMode() {
+    setState(() => _isEditing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -125,43 +137,98 @@ class _ListItemBlockWidgetState extends State<ListItemBlockWidget> {
     final double indentWidth = widget.indent.length * 6.0;
     final String bulletDisplay = _hasFocus ? widget.marker : (isOrdered ? widget.marker : '•');
     final TextStyle bulletStyle = _hasFocus ? widget.style.copyWith(color: Colors.blueAccent) : widget.style.copyWith(fontWeight: FontWeight.bold);
-    return Focus(
-      onKeyEvent: _handleKeyEvent,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: indentWidth),
-          Padding(
-            padding: const EdgeInsets.only(right: 2),
-            child: Text('$bulletDisplay ', style: bulletStyle),
-          ),
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              style: widget.style,
-              maxLines: null,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 4),
-              ),
-              onChanged: widget.onTextChanged,
-              onTap: _handleTap,
+
+    if (!_isEditing) {
+      _controller.showSyntax = widget.showMarkdownSource;
+
+      if (widget.showMarkdownSource) {
+        // Show raw markdown: indent + marker + text
+        return GestureDetector(
+          onTap: _enterEditMode,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(text: '${widget.indent}${widget.marker} ', style: widget.style),
+                _controller.buildTextSpan(
+                  context: context,
+                  style: widget.style,
+                  withComposing: false,
+                ),
+                const TextSpan(text: '\n'),
+              ]),
             ),
           ),
-        ],
+        );
+      }
+
+      return GestureDetector(
+        onTap: _enterEditMode,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: indentWidth),
+              Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: Text('$bulletDisplay ', style: bulletStyle),
+              ),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(children: [
+                    _controller.buildTextSpan(
+                      context: context,
+                      style: widget.style,
+                      withComposing: false,
+                    ),
+                    const TextSpan(text: '\n'),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SelectionContainer.disabled(
+      child: Focus(
+        onKeyEvent: _handleKeyEvent,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: indentWidth),
+            Padding(
+              padding: const EdgeInsets.only(right: 2),
+              child: Text('$bulletDisplay ', style: bulletStyle),
+            ),
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                style: widget.style,
+                maxLines: null,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 4),
+                ),
+                onChanged: widget.onTextChanged,
+                onTap: _handleTap,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   void _handleTap() {
-    if (!_controller.showSyntax) {
-      final offset = _controller.selection.baseOffset;
-      final url = _controller.getLinkUrlAtOffset(offset);
-      if (url != null && widget.onLinkTap != null) {
-        widget.onLinkTap!(url);
-      }
+    final offset = _controller.selection.baseOffset;
+    final url = _controller.getLinkUrlAtOffset(offset);
+    if (url != null && widget.onLinkTap != null) {
+      widget.onLinkTap!(url);
     }
   }
 }

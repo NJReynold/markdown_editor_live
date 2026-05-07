@@ -11,6 +11,7 @@ class TableBlockWidget extends StatefulWidget {
     required this.alignments,
     required this.rows,
     required this.style,
+    this.showMarkdownSource = false,
     this.onCellChanged,
     this.onMovePrevious,
     this.onMoveNext,
@@ -22,6 +23,7 @@ class TableBlockWidget extends StatefulWidget {
   final List<TextAlign> alignments;
   final List<List<String>> rows;
   final TextStyle style;
+  final bool showMarkdownSource;
   final TableCellChangedCallback? onCellChanged;
   final BlockNavigateCallback? onMovePrevious;
   final BlockNavigateCallback? onMoveNext;
@@ -101,6 +103,25 @@ class _TableBlockWidgetState extends State<TableBlockWidget> {
     }
   }
 
+  void _enterEditMode() {
+    setState(() => _anyFocused = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_cellFocusNodes.isNotEmpty && _cellFocusNodes[0].isNotEmpty) {
+        _cellFocusNodes[0][0].requestFocus();
+      }
+    });
+  }
+
+  String _buildMarkdownSource() {
+    final headerRow = '| ${widget.headers.join(' | ')} |';
+    final separator = '| ${widget.headers.map((_) => '---').join(' | ')} |';
+    final dataRows = widget.rows.map((row) => '| ${row.join(' | ')} |').join('\n');
+    if (dataRows.isEmpty) {
+      return '$headerRow\n$separator';
+    }
+    return '$headerRow\n$separator\n$dataRows';
+  }
+
   void _onCellChanged(int row, int col, String text) {
     widget.onCellChanged?.call(row, col, text);
   }
@@ -166,38 +187,87 @@ class _TableBlockWidgetState extends State<TableBlockWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Table(
-        border: TableBorder.all(color: Colors.grey.shade400),
-        defaultColumnWidth: const IntrinsicColumnWidth(),
-        children: List.generate(_totalRows, (row) {
-          final isHeader = row == 0;
-          return TableRow(
-            decoration: isHeader ? BoxDecoration(color: Colors.grey.shade100) : null,
-            children: List.generate(_numCols, (col) {
-              final TextStyle cellStyle = isHeader ? widget.style.copyWith(fontWeight: FontWeight.bold) : widget.style;
-              return Focus(
-                onKeyEvent: (node, event) => _handleCellKeyEvent(node, event, row, col),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: TextField(
-                    controller: _controllers[row][col],
-                    focusNode: _cellFocusNodes[row][col],
-                    style: cellStyle,
-                    textAlign: col < widget.alignments.length ? widget.alignments[col] : TextAlign.left,
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 4),
+    if (!_anyFocused) {
+      if (widget.showMarkdownSource) {
+        // Raw markdown pipe syntax for SelectionArea copy
+        return GestureDetector(
+          onTap: _enterEditMode,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              '${_buildMarkdownSource()}\n',
+              style: widget.style.copyWith(fontFamily: 'monospace'),
+            ),
+          ),
+        );
+      }
+
+      return GestureDetector(
+        onTap: _enterEditMode,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Table(
+            border: TableBorder.all(color: Colors.grey.shade400),
+            defaultColumnWidth: const IntrinsicColumnWidth(),
+            children: List.generate(_totalRows, (row) {
+              final isHeader = row == 0;
+              return TableRow(
+                decoration: isHeader ? BoxDecoration(color: Colors.grey.shade100) : null,
+                children: List.generate(_numCols, (col) {
+                  final TextStyle cellStyle = isHeader ? widget.style.copyWith(fontWeight: FontWeight.bold) : widget.style;
+                  final String cellText = row == 0
+                      ? (col < widget.headers.length ? widget.headers[col] : '')
+                      : (col < widget.rows[row - 1].length ? widget.rows[row - 1][col] : '');
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    child: Text(
+                      cellText,
+                      style: cellStyle,
+                      textAlign: col < widget.alignments.length ? widget.alignments[col] : TextAlign.left,
                     ),
-                    onChanged: (text) => _onCellChanged(row, col, text),
-                  ),
-                ),
+                  );
+                }),
               );
             }),
-          );
-        }),
+          ),
+        ),
+      );
+    }
+
+    return SelectionContainer.disabled(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Table(
+          border: TableBorder.all(color: Colors.grey.shade400),
+          defaultColumnWidth: const IntrinsicColumnWidth(),
+          children: List.generate(_totalRows, (row) {
+            final isHeader = row == 0;
+            return TableRow(
+              decoration: isHeader ? BoxDecoration(color: Colors.grey.shade100) : null,
+              children: List.generate(_numCols, (col) {
+                final TextStyle cellStyle = isHeader ? widget.style.copyWith(fontWeight: FontWeight.bold) : widget.style;
+                return Focus(
+                  onKeyEvent: (node, event) => _handleCellKeyEvent(node, event, row, col),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: TextField(
+                      controller: _controllers[row][col],
+                      focusNode: _cellFocusNodes[row][col],
+                      style: cellStyle,
+                      textAlign: col < widget.alignments.length ? widget.alignments[col] : TextAlign.left,
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 4),
+                      ),
+                      onChanged: (text) => _onCellChanged(row, col, text),
+                    ),
+                  ),
+                );
+              }),
+            );
+          }),
+        ),
       ),
     );
   }

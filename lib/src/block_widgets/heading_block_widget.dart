@@ -10,6 +10,7 @@ class HeadingBlockWidget extends StatefulWidget {
     required this.level,
     required this.text,
     required this.style,
+    this.showMarkdownSource = false,
     this.onTextChanged,
     this.onDelete,
     this.onNewline,
@@ -24,6 +25,7 @@ class HeadingBlockWidget extends StatefulWidget {
   final int level;
   final String text;
   final TextStyle style;
+  final bool showMarkdownSource;
   final BlockTextChangedCallback? onTextChanged;
   final BlockDeleteCallback? onDelete;
   final BlockNewlineCallback? onNewline;
@@ -41,6 +43,7 @@ class _HeadingBlockWidgetState extends State<HeadingBlockWidget> {
   late final InlineMarkdownController _controller;
   late final FocusNode _focusNode;
   bool _hasFocus = false;
+  bool _isEditing = false;
 
   static const _fontSizes = [28.0, 24.0, 20.0, 18.0, 16.0, 14.0];
 
@@ -51,6 +54,7 @@ class _HeadingBlockWidgetState extends State<HeadingBlockWidget> {
       text: widget.text,
       onLinkTap: widget.onLinkTap,
     );
+    _controller.showSyntax = false;
     _focusNode = widget.focusNode ?? FocusNode();
     _focusNode.addListener(_onFocusChanged);
   }
@@ -74,9 +78,17 @@ class _HeadingBlockWidgetState extends State<HeadingBlockWidget> {
   void _onFocusChanged() {
     setState(() {
       _hasFocus = _focusNode.hasFocus;
+      _isEditing = _hasFocus;
       _controller.showSyntax = _hasFocus;
     });
     widget.onFocusChanged?.call(_hasFocus);
+  }
+
+  void _enterEditMode() {
+    setState(() => _isEditing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
@@ -120,42 +132,63 @@ class _HeadingBlockWidgetState extends State<HeadingBlockWidget> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isEditing) {
+      _controller.showSyntax = widget.showMarkdownSource;
+      return GestureDetector(
+        onTap: _enterEditMode,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text.rich(
+            TextSpan(children: [
+              if (widget.showMarkdownSource)
+                TextSpan(text: '${'#' * widget.level} ', style: _headingStyle),
+              _controller.buildTextSpan(
+                context: context,
+                style: _headingStyle,
+                withComposing: false,
+              ),
+              const TextSpan(text: '\n'),
+            ]),
+          ),
+        ),
+      );
+    }
+
     final prefix = '${'#' * widget.level} ';
 
-    return Focus(
-      onKeyEvent: _handleKeyEvent,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Show # prefix when focused
-          if (_hasFocus) Text(prefix, style: _headingStyle.copyWith(color: Colors.grey.shade500)),
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              style: _headingStyle,
-              maxLines: null,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 4),
+    return SelectionContainer.disabled(
+      child: Focus(
+        onKeyEvent: _handleKeyEvent,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(prefix, style: _headingStyle.copyWith(color: Colors.grey.shade500)),
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                style: _headingStyle,
+                maxLines: null,
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 4),
+                ),
+                onChanged: widget.onTextChanged,
+                onTap: _handleTap,
               ),
-              onChanged: widget.onTextChanged,
-              onTap: _handleTap,
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   void _handleTap() {
-    if (!_controller.showSyntax) {
-      final offset = _controller.selection.baseOffset;
-      final url = _controller.getLinkUrlAtOffset(offset);
-      if (url != null && widget.onLinkTap != null) {
-        widget.onLinkTap!(url);
-      }
+    final offset = _controller.selection.baseOffset;
+    final url = _controller.getLinkUrlAtOffset(offset);
+    if (url != null && widget.onLinkTap != null) {
+      widget.onLinkTap!(url);
     }
   }
 }
