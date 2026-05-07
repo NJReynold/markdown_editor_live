@@ -150,7 +150,18 @@ class _TextBlockWidgetState extends State<TextBlockWidget> {
           contentPadding: EdgeInsets.symmetric(vertical: 4),
         ),
         onChanged: widget.onTextChanged,
+        onTap: _handleTap,
       ),
     );
+  }
+
+  void _handleTap() {
+    if (!_controller.showSyntax) {
+      final offset = _controller.selection.baseOffset;
+      final url = _controller.getLinkUrlAtOffset(offset);
+      if (url != null && widget.onLinkTap != null) {
+        widget.onLinkTap!(url);
+      }
+    }
   }
 }

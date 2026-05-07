@@ -490,10 +490,13 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
           border: border is OutlineInputBorder ? Border.fromBorderSide(border.borderSide) : null,
           borderRadius: border is OutlineInputBorder ? border.borderRadius : null,
         ),
-        child: ListView.builder(
-          padding: padding.resolve(TextDirection.ltr),
-          itemCount: _blocks.length,
-          itemBuilder: (context, index) => _buildBlock(index, effectiveStyle),
+        child: SelectionArea(
+          child: ListView.builder(
+            padding: padding.resolve(TextDirection.ltr),
+            itemCount: _blocks.length,
+            itemBuilder: (context, index) =>
+                _buildBlock(index, effectiveStyle),
+          ),
         ),
       ),
     );
@@ -502,7 +505,26 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
   /* List<Widget> */
   Widget _buildBlock(int index, TextStyle style) {
     final Block block = _blocks[index];
-    final List<Widget> blockWidgets = [];
+
+    // When selected: show raw markdown as SelectableText for native copy
+    if (_isBlockSelected(index)) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        color: Colors.blue.withValues(alpha: 0.15),
+        child: SelectableText(
+          block.toMarkdown(),
+          style: style.copyWith(
+            fontFamily: 'monospace',
+            color: Colors.grey.shade800,
+          ),
+        ),
+      );
+    }
+
+    // When not selected: render the interactive block widget
+    // Wrap in SelectionContainer.disabled so SelectionArea
+    // doesn't interfere with TextField editing.
     Widget blockWidget = switch (block) {
       ParagraphBlock() => TextBlockWidget(
         key: _blockKeys[index],
@@ -589,19 +611,6 @@ class _MarkdownEditorState extends State<MarkdownEditor> {
       ),
     };
 
-    blockWidgets.add(
-      ColoredBox(
-        color: Colors.blue.withValues(alpha: 0.2),
-        child: IgnorePointer(child: blockWidget),
-      ),
-    );
-
-    if (_isBlockSelected(index)) {
-      blockWidget = Container(
-        color: Colors.blue.withValues(alpha: 0.2),
-        child: IgnorePointer(child: blockWidget),
-      );
-    }
-    return blockWidget;
+    return SelectionContainer.disabled(child: blockWidget);
   }
 }
