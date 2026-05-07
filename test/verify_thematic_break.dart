@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:markdown_editor_live/markdown_editor_live.dart';
+import 'package:markdown_editor_live/src/markdown_text_editing_controller.dart';
 
 void main() {
   group('Thematic Break Verification', () {
     testWidgets('Renders Divider when not focused', (
-      WidgetTester tester,
+      tester,
     ) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -15,7 +15,7 @@ void main() {
                 final controller = MarkdownEditingController(text: '---');
                 // No focus set initially.
 
-                final span = controller.buildTextSpan(
+                final TextSpan span = controller.buildTextSpan(
                   context: context,
                   withComposing: false,
                 );
@@ -24,7 +24,7 @@ void main() {
                 bool hasDivider = false;
                 span.visitChildren((child) {
                   if (child is WidgetSpan) {
-                    final widget = child.child;
+                    final Widget widget = child.child;
                     if (widget is Divider) {
                       hasDivider = true;
                       return false;
@@ -51,7 +51,7 @@ void main() {
       );
     });
 
-    testWidgets('Renders Text when focused', (WidgetTester tester) async {
+    testWidgets('Renders Text when focused', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -66,18 +66,18 @@ void main() {
                 // Verify focus is set
                 expect(controller.focusedLine, 0);
 
-                final span = controller.buildTextSpan(
+                final TextSpan span = controller.buildTextSpan(
                   context: context,
                   withComposing: false,
                 );
 
                 // Expect NO Divider, but text '---'
                 bool hasDivider = false;
-                StringBuffer textContent = StringBuffer();
+                final StringBuffer textContent = StringBuffer();
 
                 span.visitChildren((child) {
                   if (child is WidgetSpan) {
-                    final widget = child.child;
+                    final Widget widget = child.child;
                     if (widget is Divider) hasDivider = true;
                     if (widget is SizedBox && widget.child is Divider) {
                       hasDivider = true;
@@ -92,8 +92,7 @@ void main() {
                 expect(
                   hasDivider,
                   isFalse,
-                  reason:
-                      'Should NOT contain a Divider WidgetSpan when focused',
+                  reason: 'Should NOT contain a Divider WidgetSpan when focused',
                 );
                 expect(textContent.toString(), contains('---'));
 
@@ -105,7 +104,7 @@ void main() {
       );
     });
 
-    testWidgets('Handles various patterns', (WidgetTester tester) async {
+    testWidgets('Handles various patterns', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -116,7 +115,7 @@ void main() {
                 for (final pattern in patterns) {
                   final controller = MarkdownEditingController(text: pattern);
                   // Unfocused
-                  final span = controller.buildTextSpan(
+                  final TextSpan span = controller.buildTextSpan(
                     context: context,
                     withComposing: false,
                   );
@@ -124,7 +123,7 @@ void main() {
                   bool hasDivider = false;
                   span.visitChildren((child) {
                     if (child is WidgetSpan) {
-                      final widget = child.child;
+                      final Widget widget = child.child;
                       if (widget is Divider) {
                         hasDivider = true;
                         return false;
@@ -153,7 +152,7 @@ void main() {
     });
 
     testWidgets('Does not trigger on invalid patterns', (
-      WidgetTester tester,
+      tester,
     ) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -164,7 +163,7 @@ void main() {
 
                 for (final pattern in patterns) {
                   final controller = MarkdownEditingController(text: pattern);
-                  final span = controller.buildTextSpan(
+                  final TextSpan span = controller.buildTextSpan(
                     context: context,
                     withComposing: false,
                   );
@@ -172,7 +171,7 @@ void main() {
                   bool hasDivider = false;
                   span.visitChildren((child) {
                     if (child is WidgetSpan) {
-                      final widget = child.child;
+                      final Widget widget = child.child;
                       if (widget is Divider) {
                         hasDivider = true;
                         return false;

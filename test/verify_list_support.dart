@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:markdown_editor_live/src/markdown_text_editing_controller.dart';
 
 void main() {
-  testWidgets('List rendering verification', (WidgetTester tester) async {
+  testWidgets('List rendering verification', (tester) async {
     final controller = MarkdownEditingController();
 
     // Setup text with list and inline style
@@ -16,7 +16,7 @@ void main() {
           body: Builder(
             builder: (context) {
               // 1. Not focused (should see bullet and bold text)
-              final span = controller.buildTextSpan(
+              final TextSpan span = controller.buildTextSpan(
                 context: context,
                 withComposing: false,
               );
@@ -36,7 +36,7 @@ void main() {
               controller.selection = const TextSelection.collapsed(offset: 0);
               controller.updateFocusedLineFromSelection();
 
-              final spanFocused = controller.buildTextSpan(
+              final TextSpan spanFocused = controller.buildTextSpan(
                 context: context,
                 withComposing: false,
               );
