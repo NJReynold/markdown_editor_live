@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:markdown_editor_live/markdown_editor_live.dart';
+import 'package:markdown_editor_live/src/markdown_text_editing_controller.dart';
 
 void main() {
   group('Thematic Break Verification', () {
@@ -92,8 +92,7 @@ void main() {
                 expect(
                   hasDivider,
                   isFalse,
-                  reason:
-                      'Should NOT contain a Divider WidgetSpan when focused',
+                  reason: 'Should NOT contain a Divider WidgetSpan when focused',
                 );
                 expect(textContent.toString(), contains('---'));
 

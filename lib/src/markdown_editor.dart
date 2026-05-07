@@ -1,7 +1,13 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:markdown_editor_live/src/markdown_text_editing_controller.dart';
 
+import 'package:markdown_editor_live/src/block_widgets.dart';
+import 'package:markdown_editor_live/src/document_model.dart';
+
+/// A block-level markdown editor that renders each content type as its own
+/// editable widget. Tables have per-cell TextFields, headings show/hide `#`
+/// markers on focus, code blocks show/hide fences, etc.
 class MarkdownEditor extends StatefulWidget {
   const MarkdownEditor({
     super.key,
@@ -15,6 +21,7 @@ class MarkdownEditor extends StatefulWidget {
     this.tabWidth = 2,
     this.imageHeightLines = 5,
   });
+
   final String? initialValue;
   final ValueChanged<String>? onChanged;
   final void Function(String url)? onLinkTap;
@@ -23,10 +30,6 @@ class MarkdownEditor extends StatefulWidget {
   final InputDecoration? decoration;
   final bool useSoftTabs;
   final int tabWidth;
-
-  /// The height of inline images in lines of text.
-  /// The actual height is calculated as: fontSize * imageHeightLines.
-  /// Defaults to 5 lines to maintain backward compatibility.
   final int imageHeightLines;
 
   @override
@@ -34,265 +37,571 @@ class MarkdownEditor extends StatefulWidget {
 }
 
 class _MarkdownEditorState extends State<MarkdownEditor> {
-  late final MarkdownEditingController _controller;
-  late final FocusNode _textFieldFocusNode;
+  late List<Block> _blocks;
+  late List<FocusNode> _focusNodes;
+  late List<GlobalKey> _blockKeys;
+  // -- Multi-block selection --
+  int _lastFocusedBlock = 0;
+  int? _selectionAnchor;
+  int? _selectionFocus;
+  final FocusNode _editorFocusNode = FocusNode();
 
-  /// Stores the previous focused line before a tap, to restore after link tap.
-  int? _prevFocusedLine;
+  bool get _hasBlockSelection => _selectionAnchor != null && _selectionFocus != null;
+  int get _selStart => _hasBlockSelection ? min(_selectionAnchor!, _selectionFocus!) : 0;
+  int get _selEnd => _hasBlockSelection ? max(_selectionAnchor!, _selectionFocus!) : 0;
+  bool _isBlockSelected(int index) => _hasBlockSelection && index >= _selStart && index <= _selEnd;
 
   @override
   void initState() {
     super.initState();
-    _controller = MarkdownEditingController(
-      text: widget.initialValue,
-      onLinkTap: widget.onLinkTap,
-      onImageTap: widget.onImageTap,
-      imageHeightLines: widget.imageHeightLines,
-    );
-    _controller.addListener(_onSelectionChanged);
-    _textFieldFocusNode = FocusNode();
-    _textFieldFocusNode.addListener(_onFocusChanged);
-  }
-
-  void _onFocusChanged() {
-    if (!_textFieldFocusNode.hasFocus) {
-      // Clear focused line when textfield loses focus to show rendered markdown
-      _controller.focusedLine = null;
+    _blocks = MarkdownParser.parse(widget.initialValue ?? '');
+    if (_blocks.isEmpty) {
+      _blocks.add(ParagraphBlock(''));
     }
+    _focusNodes = List.generate(_blocks.length, (_) => FocusNode());
+    for (final fn in _focusNodes) {
+      fn.addListener(_checkFocusChange);
+    }
+    _blockKeys = List.generate(_blocks.length, (_) => GlobalKey());
   }
 
   @override
   void dispose() {
-    _textFieldFocusNode.removeListener(_onFocusChanged);
-    _controller.removeListener(_onSelectionChanged);
-    _controller.dispose();
-    _textFieldFocusNode.dispose();
+    _editorFocusNode.dispose();
+    for (final FocusNode fn in _focusNodes) {
+      fn.removeListener(_checkFocusChange);
+      fn.dispose();
+    }
     super.dispose();
   }
 
-  void _onSelectionChanged() {
-    // Save the current focused line before updating
-    _prevFocusedLine = _controller.focusedLine;
-    _controller.updateFocusedLineFromSelection();
+  void _notifyChanged() {
+    final String markdown = MarkdownSerializer.serialize(_blocks);
+    widget.onChanged?.call(markdown);
   }
 
-  /// Handles tap events on the text field.
-  /// Checks if the tap landed on a link and calls the callback if so.
-  void _onTap() {
-    if (widget.onLinkTap == null) return;
+  // ----------------------------------------------------------
+  // Multi-block selection
+  // ----------------------------------------------------------
 
-    final int offset = _controller.selection.baseOffset;
-    if (offset < 0) return;
-
-    final String? url = _controller.getLinkUrlAtOffset(offset);
-    if (url != null) {
-      widget.onLinkTap!(url);
-      // Restore focused line to prevent switching to source mode
-      if (_prevFocusedLine != null) {
-        _controller.focusedLine = _prevFocusedLine;
+  void _checkFocusChange() {
+    for (var i = 0; i < _focusNodes.length; i++) {
+      if (_focusNodes[i].hasFocus) {
+        _onBlockFocusGained(i);
+        return;
       }
     }
   }
 
-  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    // Don't intercept keys while cell editor is active to avoid interfering with table editing
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.tab) {
-      _insertTab();
+  void _onBlockFocusGained(int index) {
+    if (HardwareKeyboard.instance.isShiftPressed) {
+      setState(() {
+        _selectionAnchor ??= _lastFocusedBlock;
+        _selectionFocus = index;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (index < _focusNodes.length) {
+          _focusNodes[index].unfocus();
+        }
+        _editorFocusNode.requestFocus();
+      });
+    } else {
+      if (_hasBlockSelection) {
+        _clearBlockSelection();
+      }
+      _lastFocusedBlock = index;
+    }
+  }
+
+  void _clearBlockSelection() {
+    setState(() {
+      _selectionAnchor = null;
+      _selectionFocus = null;
+    });
+  }
+
+  void _copySelectedBlocks() {
+    if (!_hasBlockSelection) return;
+    final selected = _blocks.sublist(_selStart, _selEnd + 1);
+    final markdown = MarkdownSerializer.serialize(selected);
+    Clipboard.setData(ClipboardData(text: markdown));
+  }
+
+  void _deleteSelectedBlocks() {
+    if (!_hasBlockSelection) return;
+    setState(() {
+      final start = _selStart;
+      final end = _selEnd;
+      for (var i = end; i >= start; i--) {
+        _blocks.removeAt(i);
+        _focusNodes[i].removeListener(_checkFocusChange);
+        _focusNodes[i].dispose();
+        _focusNodes.removeAt(i);
+        _blockKeys.removeAt(i);
+      }
+      if (_blocks.isEmpty) {
+        _blocks.add(ParagraphBlock(''));
+        final fn = FocusNode()..addListener(_checkFocusChange);
+        _focusNodes.add(fn);
+        _blockKeys.add(GlobalKey());
+      }
+      _selectionAnchor = null;
+      _selectionFocus = null;
+      _lastFocusedBlock = start.clamp(0, _blocks.length - 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_lastFocusedBlock < _focusNodes.length) {
+          _focusNodes[_lastFocusedBlock].requestFocus();
+        }
+      });
+      _notifyChanged();
+    });
+  }
+
+  KeyEventResult _handleEditorKeyEvent(FocusNode node, KeyEvent event) {
+    if (!_hasBlockSelection) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+
+    // Shift+Down: extend selection
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown && HardwareKeyboard.instance.isShiftPressed) {
+      if (_selectionFocus! < _blocks.length - 1) {
+        setState(() => _selectionFocus = _selectionFocus! + 1);
+      }
       return KeyEventResult.handled;
     }
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-      if (_handleListContinuation()) {
-        return KeyEventResult.handled;
+
+    // Shift+Up: extend selection
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp && HardwareKeyboard.instance.isShiftPressed) {
+      if (_selectionFocus! > 0) {
+        setState(() => _selectionFocus = _selectionFocus! - 1);
       }
-    }
-    return KeyEventResult.ignored;
-  }
-
-  /// Regex patterns for detecting list items
-  static final _unorderedListPattern = RegExp(r'^([ \t]*)([*+-])([ \t]+)(.*)$');
-  static final _orderedListPattern = RegExp(r'^([ \t]*)(\d+)(\.)([ \t]+)(.*)$');
-
-  /// Handles Enter key press for list continuation.
-  bool _handleListContinuation() {
-    final String text = _controller.value.text;
-    final TextSelection selection = _controller.value.selection;
-
-    if (!selection.isValid || !selection.isCollapsed) return false;
-
-    final int cursorOffset = selection.baseOffset;
-    final int lineNumber = _getLineNumber(cursorOffset);
-    final (int lineStart, int lineEnd) = _getLineRange(lineNumber);
-    final String currentLine = text.substring(lineStart, lineEnd);
-
-    // Check for unordered list
-    final RegExpMatch? unorderedMatch = _unorderedListPattern.firstMatch(currentLine);
-    if (unorderedMatch != null) {
-      final String indent = unorderedMatch.group(1)!;
-      final String bullet = unorderedMatch.group(2)!;
-      final String space = unorderedMatch.group(3)!;
-      final String content = unorderedMatch.group(4)!;
-
-      if (content.isEmpty) {
-        _removeListPrefix(lineStart, lineEnd);
-      } else {
-        _insertNewListItem(cursorOffset, '$indent$bullet$space');
-      }
-      return true;
+      return KeyEventResult.handled;
     }
 
-    // Check for ordered list
-    final RegExpMatch? orderedMatch = _orderedListPattern.firstMatch(currentLine);
-    if (orderedMatch != null) {
-      final String indent = orderedMatch.group(1)!;
-      final int number = int.parse(orderedMatch.group(2)!);
-      final String dot = orderedMatch.group(3)!;
-      final String space = orderedMatch.group(4)!;
-      final String content = orderedMatch.group(5)!;
-
-      if (content.isEmpty) {
-        _removeListPrefix(lineStart, lineEnd);
-      } else {
-        _insertNewListItem(cursorOffset, '$indent${number + 1}$dot$space');
-      }
-      return true;
+    // Ctrl+C: copy
+    if (event.logicalKey == LogicalKeyboardKey.keyC && (HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed)) {
+      _copySelectedBlocks();
+      return KeyEventResult.handled;
     }
 
-    return false;
+    // Ctrl+X: cut
+    if (event.logicalKey == LogicalKeyboardKey.keyX && (HardwareKeyboard.instance.isControlPressed || HardwareKeyboard.instance.isMetaPressed)) {
+      _copySelectedBlocks();
+      _deleteSelectedBlocks();
+      return KeyEventResult.handled;
+    }
+
+    // Delete/Backspace: delete selection
+    if (event.logicalKey == LogicalKeyboardKey.delete || event.logicalKey == LogicalKeyboardKey.backspace) {
+      _deleteSelectedBlocks();
+      return KeyEventResult.handled;
+    }
+
+    // Escape: clear selection, focus anchor
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      final target = _selectionAnchor ?? _lastFocusedBlock;
+      _clearBlockSelection();
+      if (target < _focusNodes.length) {
+        _focusNodes[target].requestFocus();
+      }
+      return KeyEventResult.handled;
+    }
+
+    // Arrow down without shift: clear, go past selection
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      final target = (_selEnd + 1).clamp(0, _blocks.length - 1);
+      _clearBlockSelection();
+      _focusNodes[target].requestFocus();
+      return KeyEventResult.handled;
+    }
+
+    // Arrow up without shift: clear, go before selection
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      final target = (_selStart - 1).clamp(0, _blocks.length - 1);
+      _clearBlockSelection();
+      _focusNodes[target].requestFocus();
+      return KeyEventResult.handled;
+    }
+
+    // Any other key: clear selection, focus anchor
+    final target = (_selectionAnchor ?? _lastFocusedBlock).clamp(0, _blocks.length - 1);
+    _clearBlockSelection();
+    _focusNodes[target].requestFocus();
+    return KeyEventResult.handled;
   }
 
-  /// Inserts a new line with the given list prefix at the cursor position.
-  void _insertNewListItem(int cursorOffset, String prefix) {
-    final String text = _controller.value.text;
-    final newText = '${text.substring(0, cursorOffset)}\n$prefix${text.substring(cursorOffset)}';
+  // ----------------------------------------------------------
+  // Block text changes
+  // ----------------------------------------------------------
 
-    _controller.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: cursorOffset + 1 + prefix.length),
-    );
+  void _onBlockTextChanged(int index, String text) {
+    final Block block = _blocks[index];
+    switch (block) {
+      case ParagraphBlock():
+        block.text = text;
+      case HeadingBlock():
+        block.text = text;
+      case ListItemBlock():
+        block.text = text;
+      case CodeBlock():
+        block.code = text;
+      default:
+        break;
+    }
+    _notifyChanged();
   }
 
-  /// Removes the list prefix from the current line, leaving just the newline.
-  void _removeListPrefix(int lineStart, int lineEnd) {
-    final String text = _controller.value.text;
-
-    if (lineStart == 0) {
-      final String newText = text.substring(lineEnd);
-      _controller.value = TextEditingValue(text: newText, selection: const TextSelection.collapsed(offset: 0));
+  void _onTableCellChanged(int blockIndex, int row, int col, String text) {
+    final Block block = _blocks[blockIndex];
+    if (block is! TableBlock) return;
+    if (row == 0) {
+      while (block.headers.length <= col) {
+        block.headers.add('');
+      }
+      block.headers[col] = text;
     } else {
-      // Remove the previous newline and the entire line content
-      final String newText = text.substring(0, lineStart - 1) + text.substring(lineEnd);
-      _controller.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: lineStart - 1),
-      );
+      final int dataRow = row - 1;
+      while (block.rows.length <= dataRow) {
+        block.rows.add(List.filled(block.headers.length, ''));
+      }
+      while (block.rows[dataRow].length <= col) {
+        block.rows[dataRow].add('');
+      }
+      block.rows[dataRow][col] = text;
     }
+    _notifyChanged();
   }
 
-  (int, int) _getLineRange(int lineNumber) {
-    final String text = _controller.value.text;
-    int currentLine = 0;
-    int lineStart = 0;
+  // ----------------------------------------------------------
+  // Block delete (merge with previous)
+  // ----------------------------------------------------------
 
-    for (int i = 0; i < text.length; i++) {
-      if (currentLine == lineNumber) {
-        int lineEnd = i;
-        while (lineEnd < text.length && text[lineEnd] != '\n') {
-          lineEnd++;
+  void _onBlockDelete(int index) {
+    if (index <= 0) return;
+
+    setState(() {
+      final Block current = _blocks[index];
+      final Block previous = _blocks[index - 1];
+
+      final String? currentText = _getBlockText(current);
+      final String? previousText = _getBlockText(previous);
+
+      if (currentText != null && previousText != null) {
+        // Both text-bearing: merge into previous
+        if (previous is HeadingBlock) {
+          _blocks[index - 1] = ParagraphBlock(
+            previous.toMarkdown() + currentText,
+          );
+        } else {
+          _setBlockText(previous, previousText + currentText);
         }
-        return (lineStart, lineEnd);
+      } else if (currentText == null || currentText.isEmpty) {
+        // Current is non-text or empty: just remove it
+      } else {
+        // Previous is non-text: move focus only
+        _focusNodes[index - 1].requestFocus();
+        return;
       }
-      if (text[i] == '\n') {
-        currentLine++;
-        lineStart = i + 1;
+
+      _blocks.removeAt(index);
+      _focusNodes[index].removeListener(_checkFocusChange);
+      _focusNodes[index].dispose();
+      _focusNodes.removeAt(index);
+      _blockKeys.removeAt(index);
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (index - 1 < _focusNodes.length) {
+          _focusNodes[index - 1].requestFocus();
+        }
+      });
+
+      _notifyChanged();
+    });
+  }
+
+  // ----------------------------------------------------------
+  // Block split (newline)
+  // ----------------------------------------------------------
+
+  void _onBlockNewline(int index, int cursorPosition) {
+    setState(() {
+      final Block block = _blocks[index];
+
+      if (block is ListItemBlock) {
+        if (block.text.isEmpty) {
+          _blocks[index] = ParagraphBlock('');
+          _notifyChanged();
+          return;
+        }
+        final String before = block.text.substring(0, cursorPosition);
+        final String after = block.text.substring(cursorPosition);
+        block.text = before;
+
+        String newMarker = block.marker;
+        if (block.isOrdered) {
+          final int num = int.tryParse(block.marker.replaceAll('.', '')) ?? 1;
+          newMarker = '${num + 1}.';
+        }
+
+        _insertBlockAfter(
+          index,
+          ListItemBlock(
+            indent: block.indent,
+            marker: newMarker,
+            text: after,
+          ),
+        );
+        return;
       }
-    }
 
-    if (currentLine == lineNumber) {
-      return (lineStart, text.length);
-    }
-
-    return (0, 0);
-  }
-
-  void _insertTab() {
-    final String text = _controller.value.text;
-    final TextSelection selection = _controller.value.selection;
-
-    if (!selection.isValid) return;
-
-    final String tabString = widget.useSoftTabs ? ' ' * widget.tabWidth : '\t';
-
-    if (selection.isCollapsed) {
-      // Insert tab at cursor position
-      final String newText = text.substring(0, selection.baseOffset) + tabString + text.substring(selection.baseOffset);
-      _controller.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: selection.baseOffset + tabString.length),
-      );
-    } else {
-      _indentSelectedLines(tabString);
-    }
-  }
-
-  void _indentSelectedLines(String tabString) {
-    final String text = _controller.value.text;
-    final TextSelection selection = _controller.value.selection;
-    final (int startLine, int endLine) = _getSelectedLineRange(selection);
-
-    final List<String> lines = text.split('\n');
-    final newLines = <String>[];
-
-    for (int i = startLine; i <= endLine; i++) {
-      if (i < lines.length) {
-        newLines.add(tabString + lines[i]);
+      if (block is ParagraphBlock) {
+        final String before = block.text.substring(0, cursorPosition);
+        final String after = block.text.substring(cursorPosition);
+        block.text = before;
+        _insertBlockAfter(index, ParagraphBlock(after));
+        return;
       }
-    }
 
-    final String before = lines.sublist(0, startLine).join('\n');
-    final String after = lines.sublist(endLine + 1).join('\n');
-    final String middle = newLines.join('\n');
-
-    final separator = startLine > 0 ? '\n' : '';
-    final separatorAfter = endLine < lines.length - 1 ? '\n' : '';
-
-    _controller.value = TextEditingValue(text: '$before$separator$middle$separatorAfter$after', selection: selection);
-  }
-
-  (int, int) _getSelectedLineRange(TextSelection selection) {
-    final int startLine = _getLineNumber(selection.baseOffset);
-    final int endLine = _getLineNumber(selection.extentOffset);
-    return (startLine, endLine);
-  }
-
-  int _getLineNumber(int offset) {
-    final String text = _controller.value.text;
-    int line = 0;
-    for (int i = 0; i < offset && i < text.length; i++) {
-      if (text[i] == '\n') {
-        line++;
+      if (block is HeadingBlock) {
+        final String before = block.text.substring(0, cursorPosition);
+        final String after = block.text.substring(cursorPosition);
+        block.text = before;
+        _insertBlockAfter(index, ParagraphBlock(after));
+        return;
       }
-    }
-    return line;
+
+      _insertBlockAfter(index, ParagraphBlock(''));
+    });
   }
+
+  void _insertBlockAfter(int index, Block newBlock) {
+    final int newIndex = index + 1;
+    _blocks.insert(newIndex, newBlock);
+    final newFocusNode = FocusNode()..addListener(_checkFocusChange);
+    _focusNodes.insert(newIndex, newFocusNode);
+    _blockKeys.insert(newIndex, GlobalKey());
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (newIndex < _focusNodes.length) {
+        _focusNodes[newIndex].requestFocus();
+      }
+    });
+
+    _notifyChanged();
+  }
+
+  // ----------------------------------------------------------
+  // Block navigation
+  // ----------------------------------------------------------
+
+  void _onMoveToPrevious(int index) {
+    if (index > 0) {
+      _focusNodes[index - 1].requestFocus();
+    }
+  }
+
+  void _onMoveToNext(int index) {
+    if (index < _blocks.length - 1) {
+      _focusNodes[index + 1].requestFocus();
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Helpers
+  // ----------------------------------------------------------
+
+  String? _getBlockText(Block block) {
+    return switch (block) {
+      ParagraphBlock() => block.text,
+      HeadingBlock() => block.text,
+      ListItemBlock() => block.text,
+      CodeBlock() => block.code,
+      _ => null,
+    };
+  }
+
+  void _setBlockText(Block block, String text) {
+    switch (block) {
+      case ParagraphBlock():
+        block.text = text;
+      case HeadingBlock():
+        block.text = text;
+      case ListItemBlock():
+        block.text = text;
+      case CodeBlock():
+        block.code = text;
+      default:
+        break;
+    }
+  }
+
+  // ----------------------------------------------------------
+  // List indent / unindent
+  // ----------------------------------------------------------
+
+  void _onListIndent(int index) {
+    final block = _blocks[index];
+    if (block is! ListItemBlock) return;
+    setState(() {
+      final unit = widget.useSoftTabs ? ' ' * widget.tabWidth : '\t';
+      block.indent = block.indent + unit;
+      _notifyChanged();
+    });
+  }
+
+  void _onListUnindent(int index) {
+    final block = _blocks[index];
+    if (block is! ListItemBlock) return;
+    if (block.indent.isEmpty) return;
+    setState(() {
+      final unit = widget.useSoftTabs ? ' ' * widget.tabWidth : '\t';
+      if (block.indent.endsWith(unit)) {
+        block.indent = block.indent.substring(0, block.indent.length - unit.length);
+      } else if (block.indent.isNotEmpty) {
+        // Trim trailing whitespace/tab if it doesn't match exactly
+        block.indent = block.indent.trimRight();
+      }
+      _notifyChanged();
+    });
+  }
+
+  // ----------------------------------------------------------
+  // Build
+  // ----------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    final TextStyle effectiveStyle = widget.style ?? const TextStyle(fontSize: 16, height: 1.5);
+    final InputDecoration effectiveDecoration =
+        widget.decoration ??
+        const InputDecoration(
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+        );
+
+    final InputBorder border = effectiveDecoration.border ?? const OutlineInputBorder();
+    final EdgeInsetsGeometry padding = effectiveDecoration.contentPadding ?? const EdgeInsets.symmetric(horizontal: 12, vertical: 16);
+
     return Focus(
-      onKeyEvent: _handleKeyEvent,
-      child: TextField(
-        focusNode: _textFieldFocusNode,
-        controller: _controller,
-        onChanged: widget.onChanged,
-        onTap: _onTap,
-        style: widget.style,
-        decoration:
-            widget.decoration?.copyWith(contentPadding: widget.decoration?.contentPadding ?? const EdgeInsets.symmetric(horizontal: 12, vertical: 16)) ??
-            const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16)),
-        maxLines: null,
-        keyboardType: TextInputType.multiline,
-        // forceStrutHeight must be false to prevent headers from clipping outside the TextField bounds
-        strutStyle: const StrutStyle(forceStrutHeight: false),
+      focusNode: _editorFocusNode,
+      onKeyEvent: _handleEditorKeyEvent,
+      child: Container(
+        decoration: BoxDecoration(
+          border: border is OutlineInputBorder ? Border.fromBorderSide(border.borderSide) : null,
+          borderRadius: border is OutlineInputBorder ? border.borderRadius : null,
+        ),
+        child: ListView.builder(
+          padding: padding.resolve(TextDirection.ltr),
+          itemCount: _blocks.length,
+          itemBuilder: (context, index) => _buildBlock(index, effectiveStyle),
+        ),
       ),
     );
+  }
+
+  /* List<Widget> */
+  Widget _buildBlock(int index, TextStyle style) {
+    final Block block = _blocks[index];
+    final List<Widget> blockWidgets = [];
+    Widget blockWidget = switch (block) {
+      ParagraphBlock() => TextBlockWidget(
+        key: _blockKeys[index],
+        text: block.text,
+        style: style,
+        focusNode: _focusNodes[index],
+        onTextChanged: (text) => _onBlockTextChanged(index, text),
+        onDelete: () => _onBlockDelete(index),
+        onNewline: (pos) => _onBlockNewline(index, pos),
+        onMovePrevious: () => _onMoveToPrevious(index),
+        onMoveNext: () => _onMoveToNext(index),
+        onLinkTap: widget.onLinkTap,
+      ),
+      HeadingBlock() => HeadingBlockWidget(
+        key: _blockKeys[index],
+        level: block.level,
+        text: block.text,
+        style: style,
+        focusNode: _focusNodes[index],
+        onTextChanged: (text) => _onBlockTextChanged(index, text),
+        onDelete: () => _onBlockDelete(index),
+        onNewline: (pos) => _onBlockNewline(index, pos),
+        onMovePrevious: () => _onMoveToPrevious(index),
+        onMoveNext: () => _onMoveToNext(index),
+        onLinkTap: widget.onLinkTap,
+      ),
+      ListItemBlock() => ListItemBlockWidget(
+        key: _blockKeys[index],
+        indent: block.indent,
+        marker: block.marker,
+        text: block.text,
+        style: style,
+        focusNode: _focusNodes[index],
+        onTextChanged: (text) => _onBlockTextChanged(index, text),
+        onDelete: () => _onBlockDelete(index),
+        onNewline: (pos) => _onBlockNewline(index, pos),
+        onMovePrevious: () => _onMoveToPrevious(index),
+        onMoveNext: () => _onMoveToNext(index),
+        onLinkTap: widget.onLinkTap,
+        onIndent: () => _onListIndent(index),
+        onUnindent: () => _onListUnindent(index),
+      ),
+      CodeBlock() => CodeBlockWidget(
+        key: _blockKeys[index],
+        language: block.language,
+        code: block.code,
+        style: style,
+        focusNode: _focusNodes[index],
+        onCodeChanged: (text) => _onBlockTextChanged(index, text),
+        onDelete: () => _onBlockDelete(index),
+        onMovePrevious: () => _onMoveToPrevious(index),
+        onMoveNext: () => _onMoveToNext(index),
+      ),
+      TableBlock() => TableBlockWidget(
+        key: _blockKeys[index],
+        headers: block.headers,
+        alignments: block.alignments,
+        rows: block.rows,
+        style: style,
+        focusNode: _focusNodes[index],
+        onCellChanged: (row, col, text) => _onTableCellChanged(index, row, col, text),
+        onMovePrevious: () => _onMoveToPrevious(index),
+        onMoveNext: () => _onMoveToNext(index),
+      ),
+      ImageBlock() => ImageBlockWidget(
+        key: _blockKeys[index],
+        url: block.url,
+        altText: block.altText,
+        style: style,
+        imageHeightLines: widget.imageHeightLines,
+        onImageTap: widget.onImageTap,
+        focusNode: _focusNodes[index],
+        onChanged: (url, altText) {
+          block.url = url;
+          block.altText = altText;
+          _notifyChanged();
+        },
+        onDelete: () => _onBlockDelete(index),
+        onMovePrevious: () => _onMoveToPrevious(index),
+        onMoveNext: () => _onMoveToNext(index),
+      ),
+      ThematicBreakBlock() => ThematicBreakWidget(
+        key: _blockKeys[index],
+      ),
+    };
+
+    blockWidgets.add(
+      ColoredBox(
+        color: Colors.blue.withValues(alpha: 0.2),
+        child: IgnorePointer(child: blockWidget),
+      ),
+    );
+
+    if (_isBlockSelected(index)) {
+      blockWidget = Container(
+        color: Colors.blue.withValues(alpha: 0.2),
+        child: IgnorePointer(child: blockWidget),
+      );
+    }
+    return blockWidget;
   }
 }

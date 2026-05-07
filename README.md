@@ -136,6 +136,58 @@ TextField(
 )
 ```
 
+## Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  MarkdownEditor (markdown_editor.dart)                       │
+│  StatefulWidget — owns & orchestrates everything             │
+│                                                              │
+│  State:                                                      │
+│    List<Block>     _blocks      ← the document model         │
+│    List<FocusNode> _focusNodes  ← one per block              │
+│    List<GlobalKey> _blockKeys   ← for widget identity        │
+│                                                              │
+│  ┌──────────────┐    parse()     ┌──────────────────────┐    │
+│  │ String input  │──────────────▶│ MarkdownParser       │    │
+│  │ (initialValue)│               │ (document_model.dart)│    │
+│  └──────────────┘               └──────────┬───────────┘    │
+│                                             ▼                │
+│                                    List<Block>               │
+│                                    (7 sealed subtypes)       │
+│                                             │                │
+│  ┌──────────────────────────────────────────┼────────────┐   │
+│  │ ListView.builder                         │            │   │
+│  │   _buildBlock(index) switches on type:   ▼            │   │
+│  │   ┌──────────────────────────────────────────────┐    │   │
+│  │   │ ParagraphBlock → TextBlockWidget             │    │   │
+│  │   │ HeadingBlock   → HeadingBlockWidget          │    │   │
+│  │   │ ListItemBlock  → ListItemBlockWidget         │    │   │
+│  │   │ CodeBlock      → CodeBlockWidget             │    │   │
+│  │   │ TableBlock     → TableBlockWidget            │    │   │
+│  │   │ ImageBlock     → ImageBlockWidget            │    │   │
+│  │   │ ThematicBreak  → ThematicBreakWidget         │    │   │
+│  │   └──────────────────────────────────────────────┘    │   │
+│  └───────────────────────────────────────────────────────┘   │
+│                                                              │
+│  On any change, blocks → MarkdownSerializer.serialize()      │
+│  → onChanged(String) callback to consumer                    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### File Responsibilities
+
+
+| File                                                                                                                                                                                    | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [**document_model.dart**](vscode-file://vscode-app/c:/Program%20Files/Microsoft%20VS%20Code/10c8e557c8/resources/app/out/vs/code/electron-browser/workbench/workbench.html)             | **Data layer.** Defines the `sealed class Block` with 7 subtypes (`ParagraphBlock`, `HeadingBlock`, `ListItemBlock`, `CodeBlock`, `TableBlock`, `ImageBlock`, `ThematicBreakBlock`). Contains `MarkdownParser.parse(String)` (line-by-line state machine that turns raw markdown into `List<Block>`) and `MarkdownSerializer.serialize(List<Block>)` (turns blocks back to a markdown string). Each block has a `toMarkdown()` method.                        |
+| [**block_widgets.dart**](vscode-file://vscode-app/c:/Program%20Files/Microsoft%20VS%20Code/10c8e557c8/resources/app/out/vs/code/electron-browser/workbench/workbench.html)              | **View layer.** One `StatefulWidget` per block type. Each widget owns its own `TextEditingController` + `FocusNode`, handles keyboard events (Enter → split, Backspace@0 → merge, ArrowUp/Down → navigate), and calls callbacks to notify the editor. The widget decides what to render when focused vs unfocused (e.g. heading shows `#` prefix when focused, hides it when not).                                                                         |
+| [**markdown_editor.dart**](vscode-file://vscode-app/c:/Program%20Files/Microsoft%20VS%20Code/10c8e557c8/resources/app/out/vs/code/electron-browser/workbench/workbench.html)            | **Controller/orchestrator.** Owns the `List<Block>`, `List<FocusNode>`, and `List<GlobalKey>`. Builds a `ListView.builder` that switches on block type to instantiate the right widget. Handles structural operations: `_onBlockDelete` (merge blocks), `_onBlockNewline` (split block), `_insertBlockAfter`, navigation between blocks, and serializes back to markdown on every change.                                                                     |
+| [**inline_markdown_controller.dart**](vscode-file://vscode-app/c:/Program%20Files/Microsoft%20VS%20Code/10c8e557c8/resources/app/out/vs/code/electron-browser/workbench/workbench.html) | **Inline formatting engine.** A custom `TextEditingController` used by text-bearing blocks (`TextBlockWidget`, `HeadingBlockWidget`, `ListItemBlockWidget`). Overrides `buildTextSpan()` to apply rich text styling for bold, italic, strikethrough, inline code, and links. Has a `showSyntax` toggle — when focused it shows raw markers (`**`, `~~`, etc.), when unfocused it hides them and renders styled text. Tracks `_linkRanges` for tap detection. |
+
+**Data flow:** User types → block widget's controller updates → `onTextChanged` callback → `_MarkdownEditorState` updates the `Block` object → calls `_notifyChanged()` → `MarkdownSerializer.serialize(_blocks)` → `widget.onChanged(markdownString)`.
+
+
 ## Example App
 
 Check out the [example](example/) directory for a complete demo application showing the editor in action with a side-by-side raw text preview.
